@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/payment-risk-streamhouse-demo/business-event-v1.schema.json",
+  "title": "Business event, schema version 1",
+  "description": "One record on the Kafka topic `business-events` (key: \"<run_id>|<supplier_id>\"). All values are synthetic. Money is an integer number of minor units (cents); never a float. Times are ISO-8601 UTC instants. The validation in common/src/main/java/demo/paymentrisk/common/EventCodec.java mirrors this schema.",
+  "type": "object",
+  "required": ["schema_version", "run_id", "event_id", "event_type", "supplier_id", "occurred_at", "emitted_at", "correlation_id", "payload"],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "run_id": { "type": "string", "minLength": 1, "description": "Demo run; every \"Start new demo\" gets a new one." },
+    "event_id": { "type": "string", "minLength": 1, "description": "Unique per event; deduplication key." },
+    "event_type": { "enum": ["SUPPLIER_REGISTERED", "BENEFICIARY_CHANGED", "IDENTITY_ACTIVITY", "PAYMENT_REQUESTED"] },
+    "supplier_id": { "type": "string", "minLength": 1 },
+    "occurred_at": { "type": "string", "format": "date-time", "description": "Business time: when the fact happened. Drives the rule." },
+    "emitted_at": { "type": "string", "format": "date-time", "description": "When the generator handed the record to the producer." },
+    "correlation_id": { "type": "string", "minLength": 1, "description": "Groups the events of one story (one run)." },
+    "payload": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event_type": { "const": "SUPPLIER_REGISTERED" } } },
+      "then": { "properties": { "payload": {
+        "type": "object",
+        "required": ["supplier_name", "relationship_years", "beneficiary_masked"],
+        "properties": {
+          "source_system": { "type": "string" },
+          "supplier_name": { "type": "string", "minLength": 1 },
+          "relationship_years": { "type": "integer", "minimum": 0 },
+          "beneficiary_masked": { "type": "string", "minLength": 1 },
+          "recurring_amount_minor": { "type": "integer", "minimum": 0 },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" }
+        }
+      } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "BENEFICIARY_CHANGED" } } },
+      "then": { "properties": { "payload": {
+        "type": "object",
+        "description": "Simulated CDC-shaped update. No database or CDC connector is deployed in v1.",
+        "required": ["change_id", "actor_id", "session_id", "before", "after"],
+        "properties": {
+          "source_system": { "type": "string" },
+          "cdc": { "type": "object" },
+          "change_id": { "type": "string", "minLength": 1 },
+          "actor_id": { "type": "string", "minLength": 1 },
+          "session_id": { "type": "string", "minLength": 1 },
+          "before": { "type": "object", "required": ["beneficiary_masked"], "properties": { "beneficiary_masked": { "type": "string", "minLength": 1 } } },
+          "after": { "type": "object", "required": ["beneficiary_masked"], "properties": { "beneficiary_masked": { "type": "string", "minLength": 1 } } }
+        }
+      } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "IDENTITY_ACTIVITY" } } },
+      "then": { "properties": { "payload": {
+        "type": "object",
+        "required": ["change_id", "actor_id", "session_id", "device_id", "device_is_known"],
+        "properties": {
+          "source_system": { "type": "string" },
+          "change_id": { "type": "string", "minLength": 1, "description": "Links the activity to one specific modification." },
+          "actor_id": { "type": "string", "minLength": 1 },
+          "session_id": { "type": "string", "minLength": 1 },
+          "device_id": { "type": "string", "minLength": 1 },
+          "device_is_known": { "type": "boolean" },
+          "activity": { "type": "string" }
+        }
+      } } }
+    },
+    {
+      "if": { "properties": { "event_type": { "const": "PAYMENT_REQUESTED" } } },
+      "then": { "properties": { "payload": {
+        "type": "object",
+        "required": ["payment_id", "amount_minor", "currency"],
+        "properties": {
+          "source_system": { "type": "string" },
+          "payment_id": { "type": "string", "minLength": 1 },
+          "amount_minor": { "type": "integer", "minimum": 0, "description": "USD 75,000.00 is 7500000." },
+          "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+          "beneficiary_masked": { "type": "string" }
+        }
+      } } }
+    }
+  ]
+}

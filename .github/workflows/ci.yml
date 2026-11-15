@@ -1,0 +1,45 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    name: Unit tests (in Docker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test stage (rule, correlation, fixtures, contracts, SQL guard rails)
+        run: docker build --progress=plain --target test -f docker/app/Dockerfile . 2>&1 | tee unit-tests.log
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-log
+          path: unit-tests.log
+
+  e2e:
+    name: End-to-end acceptance test (real Kafka, Flink, SQL Gateway, Fluss)
+    needs: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker / Compose versions
+        run: docker version && docker compose version && nproc && free -g
+      - name: scripts/smoke.sh
+        run: bash scripts/smoke.sh
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-evidence
+          path: build/smoke/
+      - name: Tear down (this demo's resources only)
+        if: always()
+        run: docker compose down --volumes --remove-orphans

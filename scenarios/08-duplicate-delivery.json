@@ -1,0 +1,56 @@
+{
+  "id": "duplicate-delivery",
+  "order": 8,
+  "title": "Duplicate delivery: replayed event and replayed payment",
+  "variant": "Duplicate events and payment replay",
+  "summary": "The baseline record is delivered twice (same event ID) and the payment request is re-sent with a new event ID but the same payment ID. Versions do not double-count and there is still exactly one logical review.",
+  "ui": false,
+  "supplier_id": "SUP-NORTHSTAR",
+  "payment_id": "PAY-NS-0006",
+  "expected_final": {
+    "supplier": { "context_version": 3, "signal_band": "HIGH" },
+    "review": { "outcome": "MANUAL_REVIEW", "context_version_used": 3 }
+  },
+  "steps": [
+    {
+      "id": "baseline", "label": "Supplier baseline", "event_type": "SUPPLIER_REGISTERED", "business_offset_seconds": 0,
+      "caption": "Northstar Logistics: three-year relationship, established account •••• 1842.",
+      "notice": "Context v1, band NORMAL.",
+      "payload": { "source_system": "simulated-vendor-master", "supplier_name": "Northstar Logistics", "relationship_years": 3, "beneficiary_masked": "•••• 1842", "recurring_amount_minor": 7500000, "currency": "USD" },
+      "expect": { "disposition": "APPLIED", "context_version": 1, "signal_band": "NORMAL" }
+    },
+    {
+      "id": "baseline-again", "label": "Same baseline record, delivered again", "duplicate_of": "baseline", "business_offset_seconds": 0,
+      "caption": "The exact same record (same event_id) is delivered a second time, as an at-least-once pipeline may do.",
+      "notice": "Flink drops it by event ID before touching any version, so there is no new output to observe. The next step proves it: the change becomes v2, not v3."
+    },
+    {
+      "id": "bank-change", "label": "Beneficiary change", "event_type": "BENEFICIARY_CHANGED", "business_offset_seconds": 60,
+      "caption": "Bank details change to •••• 9077 (simulated CDC-shaped event).",
+      "notice": "Context v2 (the duplicate did not increment the version).",
+      "payload": { "source_system": "simulated-vendor-master-cdc", "cdc": { "op": "u", "table": "vendor_master.supplier_bank_account", "simulated": true }, "change_id": "CHG-1001", "actor_id": "usr-ap-clerk-17", "session_id": "sess-4f2a", "before": { "beneficiary_masked": "•••• 1842" }, "after": { "beneficiary_masked": "•••• 9077" } },
+      "expect": { "disposition": "APPLIED", "context_version": 2, "signal_band": "ELEVATED" }
+    },
+    {
+      "id": "identity", "label": "Identity activity", "event_type": "IDENTITY_ACTIVITY", "business_offset_seconds": 120,
+      "caption": "The modification came from a previously unseen device.",
+      "notice": "Context v3, band HIGH.",
+      "payload": { "source_system": "simulated-identity-provider", "change_id": "CHG-1001", "actor_id": "usr-ap-clerk-17", "session_id": "sess-4f2a", "device_id": "dev-7c1e-unseen", "device_is_known": false, "activity": "BANK_DETAILS_MODIFIED" },
+      "expect": { "disposition": "APPLIED", "context_version": 3, "signal_band": "HIGH" }
+    },
+    {
+      "id": "payment", "label": "Payment request", "event_type": "PAYMENT_REQUESTED", "business_offset_seconds": 180,
+      "caption": "A USD 75,000 payment to •••• 9077 is requested.",
+      "notice": "MANUAL_REVIEW, one row in payment_reviews keyed by (run_id, payment_id).",
+      "payload": { "source_system": "simulated-payments-hub", "payment_id": "PAY-NS-0006", "amount_minor": 7500000, "currency": "USD", "beneficiary_masked": "•••• 9077" },
+      "expect": { "disposition": "REVIEWED", "outcome": "MANUAL_REVIEW" }
+    },
+    {
+      "id": "payment-replay", "label": "Payment re-sent (new event ID)", "event_type": "PAYMENT_REQUESTED", "business_offset_seconds": 180,
+      "caption": "The payments hub retries: same payment_id PAY-NS-0006, new event_id.",
+      "notice": "Receipt DUPLICATE_PAYMENT_IGNORED. The review row still references the first payment event.",
+      "payload": { "source_system": "simulated-payments-hub", "payment_id": "PAY-NS-0006", "amount_minor": 7500000, "currency": "USD", "beneficiary_masked": "•••• 9077", "retry": true },
+      "expect": { "disposition": "DUPLICATE_PAYMENT_IGNORED", "context_version": 3 }
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+# Official Apache Fluss Python client, same version as the pinned Fluss server (1.0.0),
+# with its resolved dependencies pinned.
+pyfluss==1.0.0
+pyarrow==26.0.1
+pandas==3.1.1
+numpy==2.5.4
+python-dateutil==4.0.0
+tzdata==2026.6

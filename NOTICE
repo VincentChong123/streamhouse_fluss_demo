@@ -1,0 +1,20 @@
+Payment Risk Streamhouse Demo
+Copyright 2026 The payment-risk-streamhouse-demo contributors
+
+The original code in this repository is licensed under the Apache License,
+Version 2.0 (see LICENSE).
+
+This repository and the images it builds include third-party material that is
+NOT relicensed by the license above. See THIRD_PARTY_ASSETS.md for sources and
+terms, in particular:
+
+  - assets/logos/apache-fluss.svg: the Apache Fluss logo. The file carries its
+    Apache License 2.0 header from The Apache Software Foundation (ASF).
+  - assets/logos/apache-kafka.png: the Apache Kafka logo.
+  - The Apache Flink logo, extracted at image build time from the Apache Flink
+    1.20.0 binary distribution (Apache License 2.0, ASF).
+
+Apache, Apache Kafka, Apache Flink, Apache Fluss, Kafka, Flink, Fluss and their
+logos are trademarks of The Apache Software Foundation. This project is an
+independent demo. It is not affiliated with, sponsored by, or endorsed
+by the ASF or any vendor.

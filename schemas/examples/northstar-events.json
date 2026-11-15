@@ -1,0 +1,75 @@
+[
+  {
+    "schema_version": "1",
+    "run_id": "run-20261112-100300-1a2b",
+    "event_id": "evt-6f1c2d4e-0001-4a7b-9b1e-3d2c1f000001",
+    "event_type": "SUPPLIER_REGISTERED",
+    "supplier_id": "SUP-NORTHSTAR",
+    "occurred_at": "2026-11-12T10:00:00Z",
+    "emitted_at": "2026-11-12T10:03:06.120Z",
+    "correlation_id": "corr-run-20261112-100300-1a2b",
+    "payload": {
+      "source_system": "simulated-vendor-master",
+      "supplier_name": "Northstar Logistics",
+      "relationship_years": 3,
+      "beneficiary_masked": "•••• 1842",
+      "recurring_amount_minor": 7500000,
+      "currency": "USD"
+    }
+  },
+  {
+    "schema_version": "1",
+    "run_id": "run-20261112-100300-1a2b",
+    "event_id": "evt-6f1c2d4e-0002-4a7b-9b1e-3d2c1f000002",
+    "event_type": "BENEFICIARY_CHANGED",
+    "supplier_id": "SUP-NORTHSTAR",
+    "occurred_at": "2026-11-12T10:01:00Z",
+    "emitted_at": "2026-11-12T10:03:17.480Z",
+    "correlation_id": "corr-run-20261112-100300-1a2b",
+    "payload": {
+      "source_system": "simulated-vendor-master-cdc",
+      "cdc": { "op": "u", "table": "vendor_master.supplier_bank_account", "simulated": true },
+      "change_id": "CHG-1001",
+      "actor_id": "usr-ap-clerk-17",
+      "session_id": "sess-4f2a",
+      "before": { "beneficiary_masked": "•••• 1842" },
+      "after": { "beneficiary_masked": "•••• 9077" }
+    }
+  },
+  {
+    "schema_version": "1",
+    "run_id": "run-20261112-100300-1a2b",
+    "event_id": "evt-6f1c2d4e-0003-4a7b-9b1e-3d2c1f000003",
+    "event_type": "IDENTITY_ACTIVITY",
+    "supplier_id": "SUP-NORTHSTAR",
+    "occurred_at": "2026-11-12T10:02:00Z",
+    "emitted_at": "2026-11-12T10:03:28.910Z",
+    "correlation_id": "corr-run-20261112-100300-1a2b",
+    "payload": {
+      "source_system": "simulated-identity-provider",
+      "change_id": "CHG-1001",
+      "actor_id": "usr-ap-clerk-17",
+      "session_id": "sess-4f2a",
+      "device_id": "dev-7c1e-unseen",
+      "device_is_known": false,
+      "activity": "BANK_DETAILS_MODIFIED"
+    }
+  },
+  {
+    "schema_version": "1",
+    "run_id": "run-20261112-100300-1a2b",
+    "event_id": "evt-6f1c2d4e-0004-4a7b-9b1e-3d2c1f000004",
+    "event_type": "PAYMENT_REQUESTED",
+    "supplier_id": "SUP-NORTHSTAR",
+    "occurred_at": "2026-11-12T10:03:00Z",
+    "emitted_at": "2026-11-12T10:03:40.330Z",
+    "correlation_id": "corr-run-20261112-100300-1a2b",
+    "payload": {
+      "source_system": "simulated-payments-hub",
+      "payment_id": "PAY-NS-0001",
+      "amount_minor": 7500000,
+      "currency": "USD",
+      "beneficiary_masked": "•••• 9077"
+    }
+  }
+]

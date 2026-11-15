@@ -1,0 +1,276 @@
+# Payment Risk Streamhouse Demo — single-host learning stack.
+#
+#   docker compose up --build -d      then open http://localhost:8090
+#   docker compose down               stop (keeps this demo's named volumes)
+#   docker compose down --volumes     stop and delete only this demo's named volumes
+#
+# Every service talks to the others through Compose DNS names. Only the demo UI
+# and the Flink UI are published, and only on the loopback interface.
+#
+# Nothing processes data on startup: the bootstrap creates topics and tables, and
+# each stage (emit, process, ingest, query) runs only when a user starts it.
+
+name: payment-risk-streamhouse-demo
+
+x-restart: &restart
+  restart: on-failure
+
+x-app-build: &app-build
+  context: .
+  dockerfile: docker/app/Dockerfile
+  target: runtime
+
+x-app-env: &app-env
+  KAFKA_BOOTSTRAP: kafka:9092
+  KAFKA_TOPIC: business-events
+  KAFKA_COMPUTED_TOPIC: computed-results
+  KAFKA_PLAYGROUND_TOPIC: playground-events
+  FLUSS_BOOTSTRAP: fluss-coordinator:9123
+  FLUSS_DATABASE: payment_risk
+  FLINK_REST_URL: http://flink-jobmanager:8081
+  SQL_GATEWAY_URL: http://flink-sql-gateway:8083
+  PYTHON_RUNNER_URL: http://python-runner:8000
+  FLINK_UI_PUBLIC_URL: http://localhost:${FLINK_UI_PORT:-8081}
+  BOOTSTRAP_STATUS_FILE: /status/bootstrap.json
+  RULE_LARGE_PAYMENT_THRESHOLD_MINOR: ${RULE_LARGE_PAYMENT_THRESHOLD_MINOR:-5000000}
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=60 -XX:+ExitOnOutOfMemoryError
+
+services:
+  # --- Apache Kafka: one broker + controller in KRaft mode (no ZooKeeper) --------
+  kafka:
+    image: apache/kafka:3.9.1@sha256:4ceccc577f03f51f6af8dbfda55194d0d892f4fa7913ffbded567ce3895622ed
+    <<: *restart
+    environment:
+      CLUSTER_ID: UFJTRERlbW9DbHVzdGVyMQ
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # Single-node settings for Kafka's internal topics.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_MIN_INSYNC_REPLICAS: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: "1"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      # A real Kafka API round trip, not just an open port.
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 25s
+      retries: 18
+      start_period: 15s
+
+  # --- ZooKeeper: coordination for Fluss only (Kafka does not use it) ------------
+  zookeeper:
+    image: zookeeper:3.9.2@sha256:43d39109cbd4de394742efbfc162a8a0a93731e806374b71f3865f4ef4460a56
+    <<: *restart
+    environment:
+      ZOO_4LW_COMMANDS_WHITELIST: ruok,srvr
+      ZOO_ADMINSERVER_ENABLED: "false"
+      JVMFLAGS: -Xmx256m
+    volumes:
+      - zookeeper-data:/data
+      - zookeeper-datalog:/datalog
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc -w 2 localhost 2181 | grep -q imok"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  # --- Apache Fluss: coordinator (metadata, placement) + one TabletServer --------
+  fluss-coordinator:
+    image: apache/fluss:1.0.0@sha256:ff461b45438033da4fd1c2556d3f978f3603bb3632fe075c2bd57388339a58cb
+    <<: *restart
+    command: coordinatorServer
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      # Listen on every interface (the service is on two networks) and advertise the
+      # Compose DNS name, which resolves correctly on each network (never "localhost").
+      FLUSS_PROPERTIES: |
+        zookeeper.address: zookeeper:2181
+        bind.listeners: FLUSS://0.0.0.0:9123
+        advertised.listeners: FLUSS://fluss-coordinator:9123
+        remote.data.dir: /fluss/remote-data
+        default.replication.factor: 1
+        default.bucket.number: 1
+    volumes:
+      - fluss-remote-data:/fluss/remote-data
+    networks: [default, python-exec]
+
+  fluss-tablet:
+    image: apache/fluss:1.0.0@sha256:ff461b45438033da4fd1c2556d3f978f3603bb3632fe075c2bd57388339a58cb
+    <<: *restart
+    command: tabletServer
+    depends_on:
+      - fluss-coordinator
+    environment:
+      FLUSS_PROPERTIES: |
+        zookeeper.address: zookeeper:2181
+        bind.listeners: FLUSS://0.0.0.0:9123
+        advertised.listeners: FLUSS://fluss-tablet:9123
+        tablet-server.id: 0
+        data.dir: /fluss/data
+        remote.data.dir: /fluss/remote-data
+        # Frequent KV snapshots keep Flink SQL full-table reads of the primary-key tables current.
+        kv.snapshot.interval: 30s
+    volumes:
+      - fluss-tablet-data:/fluss/data
+      # Same named volume, same path as the coordinator.
+      - fluss-remote-data:/fluss/remote-data
+    networks: [default, python-exec]
+
+  # --- Apache Flink 1.20 session cluster (Fluss quickstart image + Kafka SQL connector)
+  # Runs only bounded jobs submitted on request (processing, ingestion, SQL statements).
+  flink-jobmanager:
+    build: docker/flink
+    image: payment-risk-streamhouse-demo/flink:1.20-1.0.0-local
+    <<: *restart
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        jobmanager.memory.process.size: 1024m
+        parallelism.default: 1
+        state.checkpoints.dir: file:///flink-checkpoints
+        # Bounded executions fail fast and report the failure instead of retrying.
+        restart-strategy.type: none
+        jobstore.expiration-time: 86400
+        # The REST API caches job details for this long (default 3 s), so a job's FINISHED
+        # state would reach the app up to 3 s late. Also the Flink UI's refresh interval.
+        web.refresh-interval: 200
+    ports:
+      - "127.0.0.1:${FLINK_UI_PORT:-8081}:8081"
+    volumes:
+      - flink-checkpoints:/flink-checkpoints
+
+  flink-taskmanager:
+    image: payment-risk-streamhouse-demo/flink:1.20-1.0.0-local
+    <<: *restart
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        # One slot per concurrent job: a stage job plus up to two SQL statements.
+        taskmanager.numberOfTaskSlots: 4
+        taskmanager.memory.process.size: 1728m
+        state.checkpoints.dir: file:///flink-checkpoints
+    volumes:
+      - flink-checkpoints:/flink-checkpoints
+      # Flink SQL reads of Fluss primary-key tables load KV snapshot files directly
+      # from Fluss remote storage, so the TaskManager mounts it read-only.
+      - fluss-remote-data:/fluss/remote-data:ro
+
+  # --- Flink SQL Gateway: executes SQL Workspace statements on the same cluster ----
+  flink-sql-gateway:
+    image: payment-risk-streamhouse-demo/flink:1.20-1.0.0-local
+    <<: *restart
+    entrypoint: ["/opt/flink/bin/sql-gateway.sh"]
+    command:
+      - start-foreground
+      - -Dsql-gateway.endpoint.rest.address=0.0.0.0
+      - -Dsql-gateway.endpoint.rest.port=8083
+      - -Dsql-gateway.session.idle-timeout=10min
+      - -Dexecution.target=remote
+      - -Drest.address=flink-jobmanager
+      - -Drest.port=8081
+      - -Djobmanager.rpc.address=flink-jobmanager
+    environment:
+      JVM_ARGS: -Xms128m -Xmx384m
+    depends_on:
+      - flink-jobmanager
+
+  # --- One-shot initialisation: topics and Fluss tables (no job submission) -----
+  bootstrap:
+    build: *app-build
+    image: payment-risk-streamhouse-demo/app:local
+    command: ["bootstrap"]
+    restart: "no"
+    depends_on:
+      - kafka
+      - fluss-tablet
+      - flink-taskmanager
+    environment:
+      <<: *app-env
+      JAVA_TOOL_OPTIONS: -Xmx256m
+    volumes:
+      - bootstrap-status:/status
+
+  # --- Generator + Kafka producer + native Fluss reads + browser UI -------------
+  demo-app:
+    build: *app-build
+    image: payment-risk-streamhouse-demo/app:local
+    <<: *restart
+    command: ["serve"]
+    environment:
+      <<: *app-env
+      DEMO_UI_VERSION: ${DEMO_UI_VERSION:-v2}
+      STAGE_JOB_TIMEOUT_MS: ${STAGE_JOB_TIMEOUT_MS:-120000}
+      # Set a token before exposing the UI beyond localhost: SQL and Python execution then
+      # require "Authorization: Bearer <token>" (the UI asks for it).
+      PLAYGROUND_ACCESS_TOKEN: ${PLAYGROUND_ACCESS_TOKEN:-}
+      PLAYGROUND_PYTHON_ENABLED: ${PLAYGROUND_PYTHON_ENABLED:-true}
+    ports:
+      - "127.0.0.1:${DEMO_UI_PORT:-8090}:8090"
+    volumes:
+      - bootstrap-status:/status:ro
+    networks: [default, python-exec]
+
+  # --- Isolated Python execution (Query Workspace, Python tab) ---------------------
+  # No host mounts, no Docker socket, read-only root filesystem, memory/PID/CPU limits,
+  # all capabilities dropped, non-root user. Its only network reaches Fluss and the demo app.
+  python-runner:
+    build: docker/python-runner
+    image: payment-risk-streamhouse-demo/python-runner:local
+    <<: *restart
+    environment:
+      FLUSS_BOOTSTRAP_SERVERS: fluss-coordinator:9123
+      RUNNER_MAX_TIMEOUT_SECONDS: "60"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 768m
+    pids_limit: 128
+    cpus: 1.0
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [python-exec]
+
+  # --- Containerised acceptance checks (scripts/smoke.sh); not started by default
+  e2e:
+    profiles: ["test"]
+    image: payment-risk-streamhouse-demo/app:local
+    command: ["verify", "--phase", "stages"]
+    restart: "no"
+    environment:
+      <<: *app-env
+      DEMO_APP_URL: http://demo-app:8090
+
+networks:
+  default:
+  # Python executions can reach only Fluss (and the demo app that calls the runner).
+  python-exec:
+    internal: true
+
+volumes:
+  kafka-data:
+  zookeeper-data:
+  zookeeper-datalog:
+  fluss-remote-data:
+  fluss-tablet-data:
+  flink-checkpoints:
+  bootstrap-status:

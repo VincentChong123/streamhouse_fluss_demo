@@ -1,0 +1,54 @@
+{
+  "id": "benign-unrelated-change",
+  "order": 3,
+  "title": "Benign: unseen device belongs to another modification",
+  "variant": "Benign: unrelated change ID",
+  "summary": "An unseen device appears, but for a different change ID. Flink must not use it as evidence for this change; the actual change came from a known device.",
+  "ui": false,
+  "supplier_id": "SUP-NORTHSTAR",
+  "payment_id": "PAY-NS-0001",
+  "expected_final": {
+    "supplier": { "context_version": 3, "signal_band": "ELEVATED", "unfamiliar_device_evidence": false },
+    "review": {
+      "outcome": "NO_RULE_MATCH", "context_version_used": 3,
+      "check_recent_change": "TRUE", "check_unfamiliar_device": "FALSE", "check_large_payment": "TRUE"
+    }
+  },
+  "steps": [
+    {
+      "id": "baseline", "label": "Supplier baseline", "event_type": "SUPPLIER_REGISTERED", "business_offset_seconds": 0,
+      "caption": "Northstar Logistics: three-year relationship, established account •••• 1842.",
+      "notice": "Context v1, band NORMAL.",
+      "payload": { "source_system": "simulated-vendor-master", "supplier_name": "Northstar Logistics", "relationship_years": 3, "beneficiary_masked": "•••• 1842", "recurring_amount_minor": 7500000, "currency": "USD" },
+      "expect": { "disposition": "APPLIED", "context_version": 1, "signal_band": "NORMAL" }
+    },
+    {
+      "id": "bank-change", "label": "Beneficiary change", "event_type": "BENEFICIARY_CHANGED", "business_offset_seconds": 60,
+      "caption": "Bank details change to •••• 9077 under change CHG-1001 (simulated CDC-shaped event).",
+      "notice": "Context v2, band ELEVATED.",
+      "payload": { "source_system": "simulated-vendor-master-cdc", "cdc": { "op": "u", "table": "vendor_master.supplier_bank_account", "simulated": true }, "change_id": "CHG-1001", "actor_id": "usr-ap-clerk-17", "session_id": "sess-4f2a", "before": { "beneficiary_masked": "•••• 1842" }, "after": { "beneficiary_masked": "•••• 9077" } },
+      "expect": { "disposition": "APPLIED", "context_version": 2, "signal_band": "ELEVATED" }
+    },
+    {
+      "id": "unrelated-identity", "label": "Unseen device, other change", "event_type": "IDENTITY_ACTIVITY", "business_offset_seconds": 90,
+      "caption": "An unseen device is reported, but for change CHG-7731, not CHG-1001.",
+      "notice": "Flink holds it in a bounded buffer for CHG-7731 and does not attach it to CHG-1001. Context stays v2.",
+      "payload": { "source_system": "simulated-identity-provider", "change_id": "CHG-7731", "actor_id": "usr-ap-clerk-17", "session_id": "sess-9b10", "device_id": "dev-9a33-unseen", "device_is_known": false, "activity": "BANK_DETAILS_MODIFIED" },
+      "expect": { "disposition": "BUFFERED_AWAITING_CHANGE", "context_version": 2 }
+    },
+    {
+      "id": "identity", "label": "Identity activity (known device)", "event_type": "IDENTITY_ACTIVITY", "business_offset_seconds": 120,
+      "caption": "The activity that really belongs to CHG-1001 came from the clerk's known laptop.",
+      "notice": "Context v3, no unfamiliar-device evidence for this change.",
+      "payload": { "source_system": "simulated-identity-provider", "change_id": "CHG-1001", "actor_id": "usr-ap-clerk-17", "session_id": "sess-4f2a", "device_id": "dev-ap-laptop-0412", "device_is_known": true, "activity": "BANK_DETAILS_MODIFIED" },
+      "expect": { "disposition": "APPLIED", "context_version": 3, "signal_band": "ELEVATED" }
+    },
+    {
+      "id": "payment", "label": "Payment request", "event_type": "PAYMENT_REQUESTED", "business_offset_seconds": 180,
+      "caption": "A USD 75,000 payment to •••• 9077 is requested.",
+      "notice": "NO_RULE_MATCH: the unseen device belonged to another modification, so it is not evidence here.",
+      "payload": { "source_system": "simulated-payments-hub", "payment_id": "PAY-NS-0001", "amount_minor": 7500000, "currency": "USD", "beneficiary_masked": "•••• 9077" },
+      "expect": { "disposition": "REVIEWED", "outcome": "NO_RULE_MATCH" }
+    }
+  ]
+}

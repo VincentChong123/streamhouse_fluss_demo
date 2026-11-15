@@ -1,0 +1,891 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payment Risk Streamhouse</title>
+<style>
+:root{
+  --paper:#f4f3eb; --card:#fbfaf5; --ink:#172624; --teal:#087e78; --mint:#b9e8d5; --orange:#ed7748;
+  --violet:#8360bd; --muted:#5f6b64; --line:#d2d9cf; --night:#111d1b; --red:#b83a27; --amber:#9a6412;
+  --ok:#0f7b52; --code:#0f1a18; --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.45 "Aptos","Segoe UI",Arial,sans-serif}
+button,select,input,textarea{font:inherit;color:inherit}
+a{color:var(--teal)}
+.mono{font-family:var(--mono);font-size:12.5px}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.nowrap{white-space:nowrap}
+.hidden{display:none!important}
+
+/* header */
+header{background:var(--night);color:#eef3ef;display:flex;align-items:center;gap:14px;padding:9px 16px;flex-wrap:wrap}
+header h1{font-size:17px;margin:0;font-weight:650}
+header .sub{font-size:12px;color:#a9bab3}
+.hpills{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.hpill{display:flex;align-items:center;gap:6px;background:#1e2f2c;border-radius:999px;padding:3px 10px;font-size:12px}
+.dot{width:9px;height:9px;border-radius:50%;background:#7a8a85;flex:none}
+.dot.UP{background:#3ccf8e}.dot.PENDING{background:#e6b54a}.dot.DOWN{background:#f05a44}
+header a{color:#9fe6cf;font-size:12.5px}
+
+/* run bar */
+.runbar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:10px 16px;background:#ecebe1;border-bottom:1px solid var(--line)}
+.runbar .story{font-weight:650}
+.chip{font-family:var(--mono);font-size:12px;background:#fff;border:1px solid var(--line);border-radius:6px;padding:2px 7px}
+.next{margin-left:auto;font-size:13px;display:flex;gap:8px;align-items:center}
+.next b{color:var(--teal)}
+.banner{margin:10px 16px 0;padding:9px 12px;border-radius:8px;font-size:13px}
+.banner.warn{background:#fbecc8;border:1px solid #e5c56f}
+.banner.err{background:#f8dcd5;border:1px solid #e6a597}
+
+/* buttons */
+.btn{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:7px;padding:7px 14px;cursor:pointer;font-weight:650}
+.btn.ghost{background:#fff;color:var(--teal)}
+.btn.warn{border-color:var(--red);background:#fff;color:var(--red)}
+.btn.sm{padding:3px 10px;font-weight:600;font-size:12.5px}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+.btn.glow:not(:disabled){box-shadow:0 0 0 3px #b9e8d5,0 0 14px 2px #7fd6b8;animation:glow 1.6s ease-in-out infinite}
+@keyframes glow{50%{box-shadow:0 0 0 3px #b9e8d5,0 0 4px 0 #7fd6b8}}
+
+main{padding:12px 16px 32px;display:flex;flex-direction:column;gap:14px;max-width:1500px;margin:0 auto}
+
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(11,auto);align-items:center;gap:0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;overflow-x:auto}
+.pnode{border:1.5px solid var(--line);border-radius:10px;padding:6px 8px;text-align:center;background:#fff;min-width:96px;transition:border-color .3s,box-shadow .3s}
+.pnode img{height:24px;max-width:90px;display:block;margin:0 auto 3px}
+.pnode .plate{background:var(--night);border-radius:5px;padding:3px;display:inline-block}
+.pnode .plate img{height:18px;margin:0}
+.pnode .t{font-size:12px;font-weight:650}
+.pnode .s{font-size:11px;color:var(--muted)}
+.pnode.done{border-color:var(--ok);box-shadow:0 0 0 2px #d6efe3}
+.pnode.run{border-color:var(--teal);box-shadow:0 0 0 3px #b9e8d5}
+.pnode.fail{border-color:var(--red);box-shadow:0 0 0 2px #f6d2ca}
+.parrow{position:relative;height:2px;background:var(--line);min-width:28px;margin:0 4px}
+.parrow::after{content:"";position:absolute;right:-1px;top:-4px;border:5px solid transparent;border-left-color:var(--line)}
+.parrow.done{background:var(--ok)}.parrow.done::after{border-left-color:var(--ok)}
+.parrow .pkt{position:absolute;top:-4px;left:0;width:10px;height:10px;border-radius:50%;background:var(--orange);opacity:0}
+.parrow .pkt.go{animation:pkt .9s ease-in-out}
+@keyframes pkt{0%{left:0;opacity:1}100%{left:calc(100% - 10px);opacity:1}}
+
+/* stages */
+.stage{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.stage.current{border-color:var(--teal);box-shadow:0 0 0 2px #cdeee2}
+.shead{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--line);background:#f7f6ef;flex-wrap:wrap}
+.snum{width:26px;height:26px;border-radius:50%;background:var(--night);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none}
+.shead h2{margin:0;font-size:15px;font-weight:650}
+.shead img{height:20px}
+.shead .plate{background:var(--night);border-radius:5px;padding:3px 5px;display:inline-flex}
+.shead .plate img{height:15px}
+.st{margin-left:auto;font-size:12px;font-weight:700;border-radius:999px;padding:3px 11px;letter-spacing:.3px;text-transform:uppercase}
+.st.NOT_STARTED{background:#e8e8e0;color:#5a645f}
+.st.LOCKED{background:#efefe9;color:#8a938e;border:1px dashed #c7cbc4}
+.st.RUNNING{background:var(--mint);color:#0b4f4b}
+.st.SUCCEEDED{background:#d3eee0;color:var(--ok)}
+.st.FAILED{background:#f8d6cf;color:var(--red)}
+.sbody{display:grid;grid-template-columns:minmax(260px,330px) 1fr;min-height:120px}
+.left{padding:14px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+.left .lead{font-size:14.5px;font-weight:600}
+.left dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12.5px}
+.left dt{color:var(--muted)}
+.left dd{margin:0;font-family:var(--mono);font-size:12px;word-break:break-all}
+.blocked{font-size:12px;color:var(--muted);border-left:3px solid var(--line);padding-left:8px}
+.phase{font-size:12.5px;color:#0b4f4b;display:flex;align-items:center;gap:6px}
+.spin{width:12px;height:12px;border:2px solid var(--mint);border-top-color:var(--teal);border-radius:50%;animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+.right{padding:14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.empty{color:var(--muted);font-size:13px;border:1px dashed var(--line);border-radius:8px;padding:14px;text-align:center}
+.errbox{background:#fbe5df;border:1px solid #eab3a6;color:#7d2617;border-radius:8px;padding:9px 11px;font-size:13px}
+.warnbox{background:#fbefd2;border:1px solid #e6c97c;color:#6b4a07;border-radius:8px;padding:9px 11px;font-size:13px}
+.okbox{background:#e1f3ea;border:1px solid #a6d9bf;color:#0b5a3b;border-radius:8px;padding:9px 11px;font-size:13px}
+.facts{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px}
+.facts span b{font-weight:600}
+.rule{background:#fff;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12.5px}
+.rule ol{margin:4px 0 0;padding-left:18px}
+.note{font-size:12px;color:var(--muted)}
+
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{text-align:left;font-weight:600;color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--line);padding:5px 6px}
+td{border-bottom:1px solid #e6e9e2;padding:5px 6px;vertical-align:top}
+.tw{overflow-x:auto;max-width:100%}
+.pill{display:inline-block;border-radius:999px;padding:1px 8px;font-size:11.5px;font-weight:650;white-space:nowrap}
+.pill.PENDING{background:#ececE4;color:#68746c}
+.pill.SENDING,.pill.RUNNING,.pill.SUBMITTING{background:var(--mint);color:#0b4f4b}
+.pill.ACKNOWLEDGED,.pill.FINISHED,.pill.SUCCEEDED,.pill.ok{background:#d3eee0;color:var(--ok)}
+.pill.FAILED,.pill.bad,.pill.TIMED_OUT{background:#f8d6cf;color:var(--red)}
+.pill.CANCELED{background:#efe2c4;color:#6b4a07}
+.pill.TRUE{background:#f8d6cf;color:var(--red)}
+.pill.FALSE{background:#d3eee0;color:var(--ok)}
+.pill.UNKNOWN{background:#efe2c4;color:#6b4a07}
+.pill.HIGH{background:#f8d6cf;color:var(--red)}
+.pill.ELEVATED{background:#fbe7c3;color:#8a5a00}
+.pill.NORMAL{background:#d3eee0;color:var(--ok)}
+.pill.MANUAL_REVIEW{background:#f3c9be;color:#7d2617}
+.pill.NO_RULE_MATCH{background:#d3eee0;color:var(--ok)}
+.pill.REVIEW_INCOMPLETE_CONTEXT{background:#efe2c4;color:#6b4a07}
+
+details{border:1px solid var(--line);border-radius:8px;background:#fff}
+details>summary{cursor:pointer;padding:6px 10px;font-size:12.5px;color:var(--teal);font-weight:600;list-style-position:inside}
+details>.inner{padding:0 10px 10px}
+pre{margin:0;background:var(--code);color:#d9efe6;border-radius:7px;padding:9px 10px;font:12px/1.45 var(--mono);overflow:auto;max-height:340px;white-space:pre-wrap;word-break:break-word}
+pre.light{background:#f3f4ee;color:var(--ink);border:1px solid var(--line)}
+
+.versions{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+.ver{border:1px solid var(--line);border-radius:9px;background:#fff;padding:8px 10px;font-size:12px}
+.ver h4{margin:0 0 4px;font-size:13px;display:flex;gap:6px;align-items:center}
+.ver .kv{display:grid;grid-template-columns:auto 1fr;gap:1px 8px}
+.ver .kv span:nth-child(odd){color:var(--muted)}
+.ver .kv span:nth-child(even){font-family:var(--mono);word-break:break-all}
+.chg{background:#fff1b8;border-radius:3px;padding:0 2px}
+.flash{animation:flash 1.6s ease-out}
+@keyframes flash{0%{background:#ffe27a}100%{background:transparent}}
+
+.cards2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.rcard{border:1px solid var(--line);border-radius:10px;background:#fff;padding:10px 12px}
+.rcard h3{margin:0 0 6px;font-size:13.5px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.rcard .kv{display:grid;grid-template-columns:minmax(120px,auto) 1fr;gap:3px 10px;font-size:12.5px}
+.rcard .kv>span:nth-child(odd){color:var(--muted)}
+.rcard .kv>span:nth-child(even){font-family:var(--mono);font-size:12px;word-break:break-all}
+.checks{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+.check{display:flex;gap:8px;align-items:flex-start;font-size:12.5px}
+.disclaimer{font-size:12px;color:var(--muted);border-top:1px solid var(--line);padding-top:6px}
+
+/* workspaces */
+.ws{background:var(--card);border:1px solid var(--line);border-radius:12px}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);padding:6px 8px 0;flex-wrap:wrap}
+.tab{border:1px solid transparent;border-bottom:none;background:none;padding:7px 14px;cursor:pointer;border-radius:8px 8px 0 0;font-weight:600;color:var(--muted)}
+.tab.on{background:#fff;border-color:var(--line);color:var(--ink);margin-bottom:-1px}
+.tabpanel{padding:14px;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row label{font-size:12.5px;color:var(--muted)}
+select,input[type=text],input[type=password]{border:1px solid var(--line);border-radius:6px;padding:5px 8px;background:#fff;max-width:100%}
+textarea{width:100%;min-height:200px;border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:12.5px/1.5 var(--mono);background:#fff;resize:vertical}
+textarea.invalid{border-color:var(--red);box-shadow:0 0 0 2px #f6d2ca}
+.vmsg{font-size:12.5px}
+.vmsg.bad{color:var(--red)}.vmsg.good{color:var(--ok)}
+.subtabs{display:flex;gap:6px}
+.subtab{border:1px solid var(--line);background:#fff;border-radius:999px;padding:3px 12px;cursor:pointer;font-size:12.5px;font-weight:600}
+.subtab.on{background:var(--night);color:#fff;border-color:var(--night)}
+.kindhelp{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:6px;font-size:12px}
+.kindhelp div{background:#fff;border:1px solid var(--line);border-radius:7px;padding:6px 8px}
+
+@media (max-width:900px){
+  .sbody{grid-template-columns:1fr}
+  .left{border-right:none;border-bottom:1px solid var(--line)}
+  .cards2{grid-template-columns:1fr}
+  .next{margin-left:0}
+}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Payment Risk Streamhouse</h1>
+    <div class="sub">Apache Kafka · Apache Flink · Apache Fluss — staged execution on live services</div>
+  </div>
+  <div class="hpills" id="hpills"></div>
+  <a id="flinkui" href="#" target="_blank" rel="noopener">Flink UI ↗</a>
+</header>
+
+<div class="runbar">
+  <div>
+    <div class="story" id="story">The $75,000 Payment That Looked Legitimate</div>
+    <div class="small muted" id="storysum"></div>
+  </div>
+  <div class="row small">
+    <span class="muted">Run</span><span class="chip" id="runid">—</span>
+    <span class="muted">Supplier</span><span class="chip" id="supid">—</span>
+    <span class="muted">Payment</span><span class="chip" id="payid">—</span>
+  </div>
+  <div class="next">
+    <span id="nexttext"></span>
+    <button class="btn ghost sm" id="newrun" type="button">Start new demo</button>
+  </div>
+</div>
+<div id="banners"></div>
+
+<main>
+  <div class="pipe" id="pipe">
+    <div class="pnode" id="pn-k1"><img src="/assets/logos/apache-kafka.png" alt="Apache Kafka"><div class="t">Kafka</div><div class="s mono" id="pn-k1s">business-events</div></div>
+    <div class="parrow" id="pa1"><div class="pkt"></div></div>
+    <div class="pnode" id="pn-f1"><img src="/assets/logos/apache-flink.svg" alt="Apache Flink"><div class="t">Flink</div><div class="s">processing job</div></div>
+    <div class="parrow" id="pa2"><div class="pkt"></div></div>
+    <div class="pnode" id="pn-k2"><img src="/assets/logos/apache-kafka.png" alt="Apache Kafka"><div class="t">Kafka</div><div class="s mono" id="pn-k2s">computed-results</div></div>
+    <div class="parrow" id="pa3"><div class="pkt"></div></div>
+    <div class="pnode" id="pn-f2"><img src="/assets/logos/apache-flink.svg" alt="Apache Flink"><div class="t">Flink</div><div class="s">ingestion job</div></div>
+    <div class="parrow" id="pa4"><div class="pkt"></div></div>
+    <div class="pnode" id="pn-fl"><span class="plate"><img src="/assets/logos/apache-fluss.svg" alt="Apache Fluss"></span><div class="t">Fluss</div><div class="s">3 primary-key tables</div></div>
+    <div class="parrow" id="pa5"><div class="pkt"></div></div>
+    <div class="pnode" id="pn-q"><div class="t" style="font-size:18px;line-height:24px">⌕</div><div class="t">Lookup</div><div class="s">native client</div></div>
+  </div>
+
+  <!-- Stage 1 -->
+  <section class="stage" id="s1">
+    <div class="shead"><div class="snum">1</div><img src="/assets/logos/apache-kafka.png" alt="Apache Kafka"><h2>Events — Kafka</h2><span class="st" id="s1st"></span></div>
+    <div class="sbody">
+      <div class="left">
+        <div class="lead">Kafka captures and retains business events.</div>
+        <div class="small" id="s1story"></div>
+        <dl>
+          <dt>Scenario</dt><dd id="s1scn"></dd>
+          <dt>Topic</dt><dd id="s1topic"></dd>
+          <dt>Key</dt><dd id="s1key"></dd>
+          <dt>Producer</dt><dd>acks=all, idempotent</dd>
+        </dl>
+        <div><button class="btn" id="b1" type="button">Emit scenario events</button></div>
+        <div id="s1phase"></div>
+        <div class="blocked" id="s1blk"></div>
+      </div>
+      <div class="right" id="s1r"></div>
+    </div>
+  </section>
+
+  <!-- Stage 2 -->
+  <section class="stage" id="s2">
+    <div class="shead"><div class="snum">2</div><img src="/assets/logos/apache-flink.svg" alt="Apache Flink"><h2>Job Execution — Flink</h2><span class="st" id="s2st"></span></div>
+    <div class="sbody">
+      <div class="left">
+        <div class="lead">Flink correlates the events and evaluates the risk rule.</div>
+        <div class="rule" id="s2rule"></div>
+        <dl>
+          <dt>Input</dt><dd id="s2in"></dd>
+          <dt>Output</dt><dd id="s2out"></dd>
+          <dt>Execution</dt><dd>bounded job over this run's captured offsets</dd>
+        </dl>
+        <div><button class="btn" id="b2" type="button">Run Flink processing</button></div>
+        <div id="s2phase"></div>
+        <div class="blocked" id="s2blk"></div>
+      </div>
+      <div class="right" id="s2r"></div>
+    </div>
+  </section>
+
+  <!-- Stage 3 -->
+  <section class="stage" id="s3">
+    <div class="shead"><div class="snum">3</div><span class="plate"><img src="/assets/logos/apache-fluss.svg" alt="Apache Fluss"></span><h2>Ingestion — Fluss</h2><span class="st" id="s3st"></span></div>
+    <div class="sbody">
+      <div class="left">
+        <div class="lead">Fluss stores the maintained supplier context and payment-review results.</div>
+        <div class="tw"><table id="s3tables"></table></div>
+        <dl>
+          <dt>Source</dt><dd id="s3src"></dd>
+          <dt>Contract</dt><dd id="s3contract"></dd>
+          <dt>Writer</dt><dd>Flink ingestion job, official Fluss connector</dd>
+        </dl>
+        <div><button class="btn" id="b3" type="button">Ingest results into Fluss</button></div>
+        <div id="s3phase"></div>
+        <div class="blocked" id="s3blk"></div>
+      </div>
+      <div class="right" id="s3r"></div>
+    </div>
+  </section>
+
+  <!-- Stage 4 -->
+  <section class="stage" id="s4">
+    <div class="shead"><div class="snum">4</div><span class="plate"><img src="/assets/logos/apache-fluss.svg" alt="Apache Fluss"></span><h2>Query Results — Fluss</h2><span class="st" id="s4st"></span></div>
+    <div class="sbody">
+      <div class="left">
+        <div class="lead">Read the stored results directly from Fluss.</div>
+        <dl>
+          <dt>Run ID</dt><dd id="s4run"></dd>
+          <dt>Supplier ID</dt><dd id="s4sup"></dd>
+          <dt>Payment ID</dt><dd id="s4pay"></dd>
+          <dt>Mechanism</dt><dd>Fluss Java client, primary-key lookup (not SQL)</dd>
+        </dl>
+        <div><button class="btn" id="b4" type="button">Query Fluss</button></div>
+        <div id="s4phase"></div>
+        <div class="blocked" id="s4blk"></div>
+      </div>
+      <div class="right" id="s4r"></div>
+    </div>
+  </section>
+
+  <!-- Workspaces -->
+  <section class="ws">
+    <div class="tabs" role="tablist">
+      <button class="tab on" data-tab="events" type="button">Events</button>
+      <button class="tab" data-tab="sql" type="button">SQL Workspace</button>
+      <button class="tab" data-tab="query" type="button">Query Workspace</button>
+      <button class="tab" data-tab="history" type="button">Execution History</button>
+      <span class="row small" id="tokenrow" style="margin-left:auto;padding:4px 6px"><label for="token">Access token</label><input type="password" id="token" autocomplete="off" placeholder="required for SQL and Python"></span>
+    </div>
+
+    <div class="tabpanel" data-panel="events">
+      <div class="row">
+        <label for="ev-topic">Topic</label><select id="ev-topic"></select>
+        <label for="ev-key">Message key</label><input type="text" id="ev-key" size="40" placeholder="optional for playground-events">
+        <label for="ev-tpl">Template</label><select id="ev-tpl"></select>
+        <button class="btn ghost sm" id="ev-load" type="button">Load template</button>
+      </div>
+      <textarea id="ev-json" spellcheck="false" aria-label="JSON payload"></textarea>
+      <div class="row">
+        <button class="btn ghost sm" id="ev-fmt" type="button">Format JSON</button>
+        <label><input type="checkbox" id="ev-batch"> Batch (JSON array, or one JSON object per line)</label>
+        <span class="vmsg" id="ev-v"></span>
+        <span style="margin-left:auto"></span>
+        <button class="btn" id="ev-send" type="button">Send event</button>
+      </div>
+      <div id="ev-result"></div>
+      <div class="note" id="ev-help"></div>
+      <h3 style="margin:6px 0 0;font-size:13.5px">Recent submitted records</h3>
+      <div id="ev-recent"></div>
+    </div>
+
+    <div class="tabpanel hidden" data-panel="sql">
+      <div class="note" id="sql-engine"></div>
+      <div class="row">
+        <label for="sql-ex">Example</label><select id="sql-ex" style="max-width:420px"></select>
+        <label for="sql-mode">Execution mode</label>
+        <select id="sql-mode"><option value="batch">Batch — bounded, finishes</option><option value="streaming">Streaming — continuous, until cancelled</option></select>
+      </div>
+      <textarea id="sql-text" spellcheck="false" aria-label="SQL statement"></textarea>
+      <div class="row">
+        <button class="btn" id="sql-run" type="button">Run</button>
+        <button class="btn warn sm" id="sql-cancel" type="button">Cancel</button>
+        <span class="note" id="sql-limits"></span>
+      </div>
+      <div class="kindhelp">
+        <div><b>SELECT</b> returns rows to this page.</div>
+        <div><b>INSERT INTO computed_results</b> creates a job that writes to Kafka; stage 3 ingests it.</div>
+        <div><b>Batch</b> runs over a bounded snapshot of the topic and finishes.</div>
+        <div><b>Streaming</b> keeps running (changelog rows) until you cancel it.</div>
+      </div>
+      <details data-k="sql-ddl"><summary>Predefined tables (session DDL)</summary><div class="inner"><pre class="light" id="sql-ddl">business_events, playground_events, computed_results (Kafka) and fluss_catalog (Fluss) are created in every SQL Gateway session.</pre></div></details>
+      <div id="sql-result"></div>
+    </div>
+
+    <div class="tabpanel hidden" data-panel="query">
+      <div class="subtabs"><button class="subtab on" data-sub="qsql" type="button">SQL</button><button class="subtab" data-sub="qpy" type="button">Python</button></div>
+      <div data-subpanel="qsql" class="tabpanel" style="padding:0">
+        <div class="note" id="q-engine"></div>
+        <div class="row">
+          <label for="q-ex">Example</label><select id="q-ex" style="max-width:420px"></select>
+          <label for="q-mode">Execution mode</label>
+          <select id="q-mode"><option value="batch">Batch — bounded, finishes</option><option value="streaming">Streaming — continuous, until cancelled</option></select>
+        </div>
+        <textarea id="q-text" spellcheck="false" aria-label="Fluss SQL query"></textarea>
+        <div class="row"><button class="btn" id="q-run" type="button">Run</button><button class="btn warn sm" id="q-cancel" type="button">Cancel</button>
+          <span class="note">Flink SQL reads the Fluss tables through the Fluss connector. This is SQL execution, unlike stage 4's native key lookup.</span></div>
+        <div id="q-result"></div>
+      </div>
+      <div data-subpanel="qpy" class="tabpanel hidden" style="padding:0">
+        <div class="note" id="py-client"></div>
+        <textarea id="py-code" spellcheck="false" style="min-height:300px" aria-label="Python code"></textarea>
+        <div class="row"><button class="btn" id="py-run" type="button">Run</button><button class="btn warn sm" id="py-cancel" type="button">Cancel</button>
+          <button class="btn ghost sm" id="py-reset" type="button">Load example for this run</button><span class="note" id="py-limits"></span></div>
+        <div id="py-result"></div>
+      </div>
+    </div>
+
+    <div class="tabpanel hidden" data-panel="history"><div class="tw" id="history"></div></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pretty = v => { try { return JSON.stringify(v, null, 2); } catch (e) { return String(v); } };
+const store = { get(k){ try { return sessionStorage.getItem(k); } catch(e){ return null; } }, set(k,v){ try { sessionStorage.setItem(k,v); } catch(e){} } };
+
+let S = null;               // latest server snapshot
+let prevStatus = {};        // for transition animations
+let prevVals = {};          // for change highlighting
+const openDetails = new Set();
+let examplesLoaded = false, templates = [], examples = [];
+
+// ------------------------------------------------------------ formatting
+function utcTime(iso){ if(!iso) return "—"; return iso.substring(11,16) + " UTC"; }
+function clock(iso){ if(!iso) return "—"; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleTimeString([], {hour12:false}) + "." + String(d.getMilliseconds()).padStart(3,"0"); }
+function money(minor, cur){ if(minor==null) return "—"; return (cur||"USD") + " " + (minor/100).toLocaleString("en-US",{minimumFractionDigits:2}); }
+function ms(v){ return v==null ? "—" : (Math.round(v*10)/10) + " ms"; }
+function secs(v){ return v==null ? "—" : (v/1000).toFixed(1) + " s"; }
+function pill(v, cls){ return `<span class="pill ${esc(cls ?? v)}">${esc(v ?? "—")}</span>`; }
+function short(id){ if(!id) return "—"; return id.length > 18 ? id.substring(0,13) + "…" + id.slice(-4) : id; }
+function det(key, title, inner){ return `<details data-k="${esc(key)}"${openDetails.has(key)?" open":""}><summary>${esc(title)}</summary><div class="inner">${inner}</div></details>`; }
+function flashIfChanged(key, value){ const v = JSON.stringify(value); const changed = key in prevVals && prevVals[key] !== v; prevVals[key] = v; return changed ? " flash" : ""; }
+function stageStatus(st){ return st.status === "NOT_STARTED" && !st.can_run && st.blocked_reason && !/^Waiting/.test(st.blocked_reason) && !/already/.test(st.blocked_reason) ? "LOCKED" : st.status; }
+function stLabel(s){ return ({NOT_STARTED:"Ready", LOCKED:"Locked", RUNNING:"Running", SUCCEEDED:"Succeeded", FAILED:"Failed"})[s] || s; }
+function errBlock(st){ return st.error ? `<div class="errbox"><b>Failed.</b> ${esc(st.error)}${st.error_detail ? det("errd-"+st.started_at, "Error detail", `<pre>${esc(st.error_detail)}</pre>`) : ""}</div>` : ""; }
+
+// ------------------------------------------------------------ API
+function authHeaders(){ const t = $("token").value || store.get("prsd-token") || ""; return t ? {"Authorization":"Bearer " + t} : {}; }
+async function api(method, path, body){
+  const r = await fetch(path, {method, headers: Object.assign({"Content-Type":"application/json"}, authHeaders()), body: body === undefined ? undefined : JSON.stringify(body)});
+  let j = null; try { j = await r.json(); } catch(e) {}
+  return {status: r.status, ok: r.ok, body: j || {}};
+}
+function toast(container, msg, kind){ $(container).innerHTML = `<div class="${kind==="ok"?"okbox":kind==="warn"?"warnbox":"errbox"}">${msg}</div>`; }
+
+async function startStage(n){
+  const b = $("b"+n); b.disabled = true;
+  const r = await api("POST", "/api/stages/" + n, {});
+  if (!r.ok) { $("s"+n+"blk").innerHTML = `<span style="color:var(--red)">${esc(r.body.error || ("HTTP " + r.status))}</span>`; }
+}
+
+// ------------------------------------------------------------ rendering: header, run bar, pipeline
+function renderHeader(){
+  const h = S.health || {};
+  $("hpills").innerHTML = (h.components || []).map(c => `<span class="hpill" title="${esc(c.detail + (c.hint ? " — " + c.hint : ""))}"><span class="dot ${esc(c.status)}"></span>${esc(c.label)}</span>`).join("")
+    + (h.slots_total ? `<span class="hpill" title="Flink task slots free / total">slots ${h.slots_available}/${h.slots_total}</span>` : "");
+  $("flinkui").href = S.app.flink_ui_url;
+  const ban = [];
+  if (h.overall === "STARTING") {
+    const steps = ((h.bootstrap || {}).steps || []).map(s => `${esc(s.label)}: <b>${esc(s.state)}</b>${s.detail ? " — " + esc(s.detail) : ""}`).join("<br>");
+    ban.push(`<div class="banner warn"><b>Services are starting.</b> Stages can be started once Kafka, Flink and Fluss report UP.<br>${(h.components||[]).filter(c=>c.status!=="UP").map(c=>esc(c.label)+": "+esc(c.detail)).join("<br>")}${steps ? "<br>" + steps : ""}</div>`);
+  } else if (h.overall === "DEGRADED") {
+    ban.push(`<div class="banner err"><b>A required service is unavailable.</b> ${(h.components||[]).filter(c=>c.required && c.status!=="UP").map(c=>esc(c.label)+": "+esc(c.detail)+(c.hint? " "+esc(c.hint):"")).join(" · ")}</div>`);
+  }
+  $("banners").innerHTML = ban.join("");
+  $("tokenrow").classList.toggle("hidden", !S.app.auth_required);
+}
+
+function renderRunBar(run){
+  $("story").textContent = run.title;
+  $("storysum").textContent = run.summary;
+  $("runid").textContent = run.run_id; $("supid").textContent = run.supplier_id; $("payid").textContent = run.payment_id;
+  $("newrun").disabled = !!S.app.busy_operation;
+  const order = [["stage1","Emit scenario events"],["stage2","Run Flink processing"],["stage3","Ingest results into Fluss"],["stage4","Query Fluss"]];
+  let next = null;
+  for (let i = 0; i < 4; i++) { const st = run[order[i][0]]; if (st.status !== "SUCCEEDED") { next = i; break; } }
+  for (let i = 1; i <= 4; i++) { $("b"+i).classList.toggle("glow", next === i-1); $("s"+i).classList.toggle("current", next === i-1); }
+  const busy = S.app.busy_operation;
+  $("nexttext").innerHTML = busy ? `<span class="spin"></span> Running: <b>${esc(busy)}</b>`
+    : next === null ? `<b>All four stages succeeded.</b> Query again, or start a new demo.`
+    : `Next: <b>Stage ${next+1} — ${order[next][1]}</b>`;
+}
+
+function renderPipe(run){
+  const st = [run.stage1.status, run.stage2.status, run.stage3.status, run.stage4.status];
+  const cls = s => s === "SUCCEEDED" ? "done" : s === "RUNNING" ? "run" : s === "FAILED" ? "fail" : "";
+  const set = (id, c) => { const e = $(id); e.classList.remove("done","run","fail"); if (c) e.classList.add(c); };
+  set("pn-k1", cls(st[0])); set("pn-f1", cls(st[1])); set("pn-k2", st[1]==="SUCCEEDED" ? "done" : ""); set("pn-f2", cls(st[2]));
+  set("pn-fl", st[2]==="SUCCEEDED" ? "done" : ""); set("pn-q", cls(st[3]));
+  $("pa1").classList.toggle("done", st[1]==="SUCCEEDED"); $("pa2").classList.toggle("done", st[1]==="SUCCEEDED");
+  $("pa3").classList.toggle("done", st[2]==="SUCCEEDED"); $("pa4").classList.toggle("done", st[2]==="SUCCEEDED");
+  $("pa5").classList.toggle("done", st[3]==="SUCCEEDED");
+  // Animate only on a real transition to SUCCEEDED (evidence received).
+  const key = run.run_id;
+  const was = prevStatus[key] || {};
+  const fire = id => { const p = $(id).querySelector(".pkt"); p.classList.remove("go"); void p.offsetWidth; p.classList.add("go"); };
+  if (was.s2 && was.s2 !== "SUCCEEDED" && st[1] === "SUCCEEDED") { fire("pa1"); setTimeout(()=>fire("pa2"), 450); }
+  if (was.s3 && was.s3 !== "SUCCEEDED" && st[2] === "SUCCEEDED") { fire("pa3"); setTimeout(()=>fire("pa4"), 450); }
+  if (was.s4 && was.s4 !== "SUCCEEDED" && st[3] === "SUCCEEDED") { fire("pa5"); }
+  prevStatus[key] = {s1: st[0], s2: st[1], s3: st[2], s4: st[3]};
+}
+
+// Measured server-side time of each step of the stage's latest execution.
+function stepTimes(n, st){
+  const steps = st.steps || [];
+  if (!steps.length) return "";
+  const live = st.status === "RUNNING";
+  const total = live ? null : st.duration_ms;
+  const dur = v => v < 1000 ? v + " ms" : secs(v);
+  const rows = steps.map(x => `<tr><td>${esc(x.name)}</td><td class="nowrap" style="text-align:right">${x.running ? "running…" : esc(dur(x.ms))}</td></tr>`).join("");
+  const title = live ? "Timing (in progress)" : `Timing: ${secs(total)} in ${steps.length} step${steps.length === 1 ? "" : "s"}`;
+  return `<div style="margin-top:6px">${det("timing-" + n, title, `<table><tbody>${rows}</tbody></table>`)}</div>`;
+}
+
+function renderStageChrome(n, st){
+  const s = stageStatus(st);
+  const el = $("s"+n+"st"); el.className = "st " + s; el.textContent = stLabel(s);
+  $("b"+n).disabled = !st.can_run;
+  $("s"+n+"phase").innerHTML = (st.status === "RUNNING" ? `<div class="phase"><span class="spin"></span>${esc(st.phase || "Running")}</div>` : "") + stepTimes(n, st);
+  $("s"+n+"blk").textContent = st.can_run ? "" : (st.blocked_reason || "");
+}
+
+// ------------------------------------------------------------ stage 1
+function renderS1(run){
+  const st = run.stage1;
+  renderStageChrome(1, st);
+  $("s1story").textContent = run.summary;
+  $("s1scn").textContent = run.title;
+  $("s1topic").textContent = `${st.topic} (partition 0)`;
+  $("s1key").textContent = run.stage1.events[0] ? run.stage1.events[0].key : "";
+  if (st.status === "SUCCEEDED" || st.status === "FAILED" || st.status === "RUNNING") {}
+  const rows = st.events.map((e, i) => {
+    const acked = e.status === "ACKNOWLEDGED";
+    const cls = flashIfChanged("ev-"+e.event_id, e.status);
+    return `<tr class="${cls}">
+      <td class="nowrap"><b>${esc(utcTime(e.occurred_at))}</b></td>
+      <td><b>${esc(e.event_type)}</b><div class="small muted">${esc(e.caption)}</div></td>
+      <td class="mono" title="${esc(e.event_id)}">${esc(short(e.event_id))}<div class="small muted">${esc(run.supplier_id)}</div></td>
+      <td>${pill(e.status === "ACKNOWLEDGED" ? "Acknowledged" : e.status === "SENDING" ? "Sending" : e.status === "FAILED" ? "Failed" : "Not sent", e.status)}
+        ${e.error ? `<div class="small" style="color:var(--red)">${esc(e.error)}</div>` : ""}</td>
+      <td class="mono nowrap">${acked ? `p${e.partition} @ <b>${e.offset}</b>` : "—"}<div class="small muted">${acked ? esc(clock(e.acked_at)) + " · " + e.send_ms + " ms" : ""}</div></td>
+    </tr>
+    ${e.record ? `<tr><td></td><td colspan="4">${det("evjson-"+e.event_id, "JSON sent to Kafka (" + e.event_type + ")", `<pre>${esc(pretty(e.record))}</pre><div class="note">Key <span class="mono">${esc(e.key)}</span> · Kafka timestamp ${esc(clock(e.kafka_timestamp))}</div>`)}</td></tr>` : ""}`;
+  }).join("");
+  let html = errBlock(st);
+  if (st.status === "NOT_STARTED") html += `<div class="empty">Nothing has been sent for this run. <b>Emit scenario events</b> sends the four events below to <span class="mono">${esc(st.topic)}</span>; each row turns acknowledged only when Kafka confirms it.</div>`;
+  html += `<div class="tw"><table><thead><tr><th>Business time</th><th>Event</th><th>Event ID / supplier</th><th>Status</th><th>Partition @ offset</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  if (st.status === "SUCCEEDED") {
+    const f = st.events[0], l = st.events[st.events.length-1];
+    html += `<div class="okbox">Kafka acknowledged ${st.events.length} records (acks=all) at <span class="mono">${esc(st.topic)}-0</span> offsets <b>${f.offset}–${l.offset}</b>. No computation has run yet; nothing is in Fluss for this run.</div>`;
+  }
+  $("s1r").innerHTML = html;
+  // animate the first pipeline arrow for each newly acknowledged event
+  st.events.forEach(e => { const k = "ack-" + e.event_id; if (e.status === "ACKNOWLEDGED" && prevVals[k] === undefined) { prevVals[k] = 1; if (S.__live) { const p = $("pa1").querySelector(".pkt"); p.classList.remove("go"); void p.offsetWidth; p.classList.add("go"); } } });
+}
+
+// ------------------------------------------------------------ stage 2
+const SUP_FIELDS = ["context_version","signal_band","current_beneficiary_masked","bank_change_id","bank_change_occurred_at","identity_device_id","unfamiliar_device_evidence","last_source_event_type"];
+function versionCards(list, keyPrefix){
+  let prev = null;
+  return `<div class="versions">` + list.map(v => {
+    const r = v.row || {};
+    const kv = SUP_FIELDS.map(f => {
+      const changed = prev && JSON.stringify(prev[f]) !== JSON.stringify(r[f]);
+      let val = r[f]; if (f.endsWith("_at") && val) val = utcTime(val);
+      return `<span>${esc(f.replace(/_/g," "))}</span><span>${changed ? `<span class="chg">${esc(val ?? "—")}</span>` : esc(val ?? "—")}</span>`;
+    }).join("");
+    prev = r;
+    return `<div class="ver"><h4>v${esc(r.context_version)} ${pill(r.signal_band)}<span class="small muted mono" style="margin-left:auto">offset ${esc(v.offset)}</span></h4><div class="small" style="margin-bottom:4px">${esc(r.signal_reason || "")}</div><div class="kv">${kv}</div></div>`;
+  }).join("") + `</div>`;
+}
+function reviewCard(r, title, extra){
+  if (!r) return "";
+  const checks = [
+    ["check_recent_change", `Beneficiary changed within ${S.app.rule_window_minutes} minutes before the payment`, r.seconds_since_bank_change != null ? `${r.seconds_since_bank_change} s between change and payment` : ""],
+    ["check_unfamiliar_device", "That change was made from a previously unseen device", r.evidence_identity_event_id ? `identity event ${short(r.evidence_identity_event_id)}` : ""],
+    ["check_large_payment", `Payment exceeds ${money(S.app.rule_threshold_minor, "USD")}`, money(r.amount_minor, r.currency)],
+  ].map(([k, label, ev]) => `<div class="check">${pill(r[k] || "—", r[k])}<div><div>${esc(label)}</div><div class="small muted mono">${esc(ev)}</div></div></div>`).join("");
+  return `<div class="rcard"><h3>${esc(title)} ${pill(r.outcome)}</h3>
+    <div class="checks">${checks}</div>
+    <div class="kv">
+      <span>payment</span><span>${esc(r.payment_id)} · ${esc(money(r.amount_minor, r.currency))} · ${esc(utcTime(r.payment_occurred_at))}</span>
+      <span>context version used</span><span class="${flashIfChanged((extra||"")+"cvu", r.context_version_used)}">v${esc(r.context_version_used ?? "—")}</span>
+      <span>evidence: baseline</span><span title="${esc(r.evidence_baseline_event_id)}">${esc(short(r.evidence_baseline_event_id))}</span>
+      <span>evidence: bank change</span><span title="${esc(r.evidence_bank_change_event_id)}">${esc(short(r.evidence_bank_change_event_id))}</span>
+      <span>evidence: identity</span><span title="${esc(r.evidence_identity_event_id)}">${esc(short(r.evidence_identity_event_id))}</span>
+      <span>payment event</span><span title="${esc(r.source_payment_event_id)}">${esc(short(r.source_payment_event_id))} (offset ${esc(r.source_kafka_offset ?? "—")})</span>
+      <span>rule</span><span>${esc(r.rule_version || "—")}</span>
+      ${r.missing_evidence ? `<span>missing evidence</span><span>${esc(r.missing_evidence)}</span>` : ""}
+    </div>
+    <div class="small" style="margin-top:6px">${esc(r.explanation || "")}</div>
+    <div class="disclaimer">These signals indicate potential fraud, not confirmed fraud. Nothing is paid, authorized or released.</div></div>`;
+}
+function jobFacts(x){
+  return `<div class="facts">
+    <span>Job ID <b class="mono">${x.job_id ? `<a href="${esc(x.job_url)}" target="_blank" rel="noopener">${esc(x.job_id)}</a>` : "—"}</b></span>
+    <span>State ${x.job_state ? pill(x.job_state, x.job_state === "FINISHED" ? "FINISHED" : x.job_state === "FAILED" || x.job_state === "CANCELED" ? "FAILED" : "RUNNING") : "—"}</span>
+    <span>Execution <b class="mono">${esc(x.execution_id)}</b></span>
+    <span>Job duration <b>${esc(secs(x.job_duration_ms))}</b></span>
+  </div>`;
+}
+function accumulators(x){
+  if (!x.accumulators) return "";
+  return `<div class="facts small">${Object.entries(x.accumulators).map(([k,v]) => `<span class="mono">${esc(k)}=<b>${esc(v)}</b></span>`).join("")}<span class="muted">(Flink accumulators)</span></div>`;
+}
+function renderS2(run){
+  const st = run.stage2, x = st.execution;
+  renderStageChrome(2, st);
+  const a = S.app;
+  $("s2rule").innerHTML = `<b>${esc(a.rule_version)}</b>, evaluated when the payment request arrives:<ol>
+    <li>Beneficiary changed within the previous ${esc(a.rule_window_minutes)} minutes.</li>
+    <li>That modification came from an unfamiliar device (matched on change, session and actor).</li>
+    <li>Payment exceeds ${esc(money(a.rule_threshold_minor, "USD"))}.</li></ol>
+    <div class="small muted" style="margin-top:4px">All three TRUE → MANUAL_REVIEW. Missing evidence → REVIEW_INCOMPLETE_CONTEXT.</div>`;
+  $("s2in").textContent = `${a.input_topic}, this run's offsets`;
+  $("s2out").textContent = a.computed_topic;
+  let html = errBlock(st);
+  if (!x) {
+    html += st.status === "RUNNING" ? "" : `<div class="empty">No processing job has run for this run. <b>Run Flink processing</b> submits a bounded job that reads this run's events from <span class="mono">${esc(a.input_topic)}</span> and writes computed results to <span class="mono">${esc(a.computed_topic)}</span>.</div>`;
+    $("s2r").innerHTML = html; return;
+  }
+  html += jobFacts(x);
+  html += `<div class="facts small">
+    <span>Input <b class="mono">${esc(x.input_topic)}-0 [${esc(x.input_start ?? "…")}, ${esc(x.input_end ?? "…")})</b></span>
+    <span>This run <b>${esc(x.input_records_this_run ?? "…")}</b> · other runs skipped <b>${esc(x.input_records_other_runs ?? "…")}</b></span>
+    <span>Output <b class="mono">${esc(x.output_topic)}-0 [${esc(x.output_start ?? "…")}, ${esc(x.output_end ?? "…")})</b></span></div>`;
+  html += accumulators(x);
+  const res = x.results || [];
+  if (res.length) {
+    const sup = res.filter(r => r.target_table === "supplier_risk");
+    const rev = res.filter(r => r.target_table === "payment_reviews");
+    const rec = res.filter(r => r.target_table === "event_receipts");
+    html += `<div><b>Supplier context updates</b> <span class="small muted">(job output read from ${esc(x.output_topic)}; changed fields highlighted)</span></div>` + versionCards(sup, "p");
+    rev.forEach(r => html += reviewCard(r.row, "Payment review computed by Flink", "p-" + r.row.payment_id));
+    html += det("s2rec-"+x.execution_id, `Event receipts (${rec.length})`, `<div class="tw"><table><thead><tr><th>Offset</th><th>Event</th><th>Disposition</th><th>Context after</th><th>Detail</th></tr></thead><tbody>${rec.map(r => `<tr><td class="mono">${esc(r.row.kafka_offset)}</td><td>${esc(r.row.event_type)}<div class="small mono muted">${esc(short(r.row.event_id))}</div></td><td>${esc(r.row.disposition)}</td><td>v${esc(r.row.context_version_after ?? "—")}</td><td class="small">${esc(r.row.detail)}</td></tr>`).join("")}</tbody></table></div>`);
+    html += det("s2raw-"+x.execution_id, `Raw computed-result records (${res.length})`, `<pre>${esc(res.map(r => `offset ${r.offset}  key ${r.key}\n` + pretty({target_table: r.target_table, execution_id: r.execution_id, producer: r.producer, row: r.row})).join("\n\n"))}</pre>`);
+    if (st.status === "SUCCEEDED") html += `<div class="okbox">The Flink job FINISHED and wrote ${res.length} computed results to Kafka. The Fluss tables are not populated for this run until stage 3.</div>`;
+  }
+  html += det("s2args-"+x.execution_id, "Job submission", `<pre class="light">${esc((x.program_args || []).join(" "))}</pre>`);
+  $("s2r").innerHTML = html;
+}
+
+// ------------------------------------------------------------ stage 3
+function renderS3(run){
+  const st = run.stage3, x = st.execution, a = S.app;
+  renderStageChrome(3, st);
+  $("s3tables").innerHTML = `<thead><tr><th>Destination table</th><th>Primary key</th></tr></thead><tbody>` + a.tables.map(t => `<tr><td class="mono">${esc(a.fluss_database)}.${esc(t.name)}</td><td class="mono">${esc(t.primary_key.join(", "))}</td></tr>`).join("") + `</tbody>`;
+  $("s3src").textContent = `${a.computed_topic}, this run's records`;
+  $("s3contract").textContent = a.computed_contract;
+  let html = errBlock(st);
+  if (st.warning) html += `<div class="warnbox">${esc(st.warning)}</div>`;
+  if (!x) {
+    html += st.status === "RUNNING" ? "" : `<div class="empty">Nothing has been ingested for this run. <b>Ingest results into Fluss</b> validates this run's computed results, submits a bounded ingestion job and confirms every written row with a native Fluss lookup.</div>`;
+    $("s3r").innerHTML = html; return;
+  }
+  html += jobFacts(x);
+  html += `<div class="facts small">
+    <span>Source <b class="mono">${esc(x.source_topic)}-0 [${esc(x.source_start ?? "…")}, ${esc(x.source_end ?? "…")})</b></span>
+    <span>This run <b>${esc(x.records_this_run ?? "…")}</b> · valid <b>${esc(x.records_valid ?? "…")}</b> · rejected <b>${esc((x.rejected||[]).length)}</b> · other runs skipped <b>${esc(x.records_other_runs ?? "…")}</b></span></div>`;
+  if (x.by_producer) html += `<div class="facts small">${Object.entries(x.by_producer).map(([k,v]) => `<span>computed by <b class="mono">${esc(k)}</b>: ${esc(v)}</span>`).join("")}</div>`;
+  html += accumulators(x);
+  if ((x.rejected||[]).length) {
+    html += `<div class="warnbox"><b>${x.rejected.length} record(s) do not match ${esc(a.computed_contract)} and are not written:</b><ul style="margin:4px 0 0;padding-left:18px">${x.rejected.map(r => `<li class="small"><span class="mono">offset ${esc(r.offset)}</span> (${esc(r.execution_id || "?")} → ${esc(r.target_table || "?")}): ${esc((r.errors||[]).join("; "))}</li>`).join("")}</ul></div>`;
+  }
+  if ((x.supplier_versions||[]).length) {
+    html += `<div><b>Supplier context versions written</b> <span class="small muted">(upserts on the primary key: the table keeps the latest version)</span></div>` + versionCards(x.supplier_versions, "i");
+  }
+  const rb = x.read_back || {rows: []};
+  if (rb.rows && rb.rows.length) {
+    html += `<div><b>Native Fluss read-back</b> <span class="small muted">${esc(rb.method || "")}</span></div>`;
+    html += `<div class="tw"><table><thead><tr><th>Table</th><th>Primary key</th><th>Read back</th><th>Lookup</th><th>Computed by / ingested by</th></tr></thead><tbody>${rb.rows.map(r => {
+      const o = r.observation || {};
+      const res = !r.observation ? pill("pending","PENDING") : r.matches ? pill("matches","ok") : pill("mismatch","bad");
+      return `<tr><td class="mono">${esc(r.table)}</td><td class="mono small">${esc(Object.values(r.key||{}).join(" | "))}</td><td>${res}${(r.mismatches||[]).length ? `<div class="small" style="color:var(--red)">${esc(r.mismatches.join("; "))}</div>` : ""}</td>
+        <td class="small nowrap">${o.duration_ms != null ? esc(ms(o.duration_ms)) : "—"}</td><td class="small mono">${esc((o.row||{}).computed_by || "—")}<br>${esc((o.row||{}).ingested_by || "—")}</td></tr>`;
+    }).join("")}</tbody></table></div>`;
+    html += det("s3raw-"+x.execution_id, "Rows returned by Fluss", `<pre>${esc(pretty(rb.rows.map(r => ({table: r.table, key: r.key, row: (r.observation||{}).row}))))}</pre>`);
+  }
+  if (st.status === "SUCCEEDED") html += `<div class="okbox">Persistence confirmed: Fluss returned all ${esc(rb.matched)} written rows with the expected values.</div>`;
+  html += det("s3args-"+x.execution_id, "Job submission", `<pre class="light">${esc((x.program_args || []).join(" "))}</pre>`);
+  $("s3r").innerHTML = html;
+}
+
+// ------------------------------------------------------------ stage 4
+function obsKv(o){ return `<span>queried at</span><span>${esc(clock(o.queried_at))}</span><span>duration</span><span>${esc(ms(o.duration_ms))}</span>`; }
+function renderS4(run){
+  const st = run.stage4, q = st.result;
+  renderStageChrome(4, st);
+  $("s4run").textContent = run.run_id; $("s4sup").textContent = run.supplier_id; $("s4pay").textContent = run.payment_id;
+  let html = errBlock(st);
+  if (!q) {
+    html += st.status === "RUNNING" ? "" : `<div class="empty">No query has been made for this run. <b>Query Fluss</b> performs two native primary-key lookups: <span class="mono">supplier_risk(run_id, supplier_id)</span> and <span class="mono">payment_reviews(run_id, payment_id)</span>.</div>`;
+    $("s4r").innerHTML = html; return;
+  }
+  const s = (q.supplier || {}).row, r = (q.review || {}).row;
+  html += `<div class="facts small"><span>Mechanism <b>${esc(q.mechanism)}</b></span><span>Queried <b>${esc(clock(q.queried_at))}</b></span>
+    <span>supplier_risk <b>${esc(ms((q.supplier||{}).duration_ms))}</b></span><span>payment_reviews <b>${esc(ms((q.review||{}).duration_ms))}</b></span></div>`;
+  html += `<div class="cards2">`;
+  html += s ? `<div class="rcard"><h3>supplier_risk ${pill(s.signal_band)}</h3><div class="kv">
+      <span>context version</span><span class="${flashIfChanged("q4cv", s.context_version)}">v${esc(s.context_version)}</span>
+      <span>risk status</span><span>${esc(s.signal_band)} — ${esc(s.signal_reason)}</span>
+      <span>beneficiary</span><span>${esc(s.baseline_beneficiary_masked)} → ${esc(s.current_beneficiary_masked)}</span>
+      <span>bank change</span><span>${esc(s.bank_change_id)} at ${esc(utcTime(s.bank_change_occurred_at))}</span>
+      <span>unfamiliar device</span><span>${esc(s.unfamiliar_device_evidence)} (${esc(s.identity_device_id)}, known=${esc(s.identity_device_known)})</span>
+      <span>source events</span><span>change ${esc(short(s.bank_change_event_id))} · identity ${esc(short(s.identity_event_id))} · last ${esc(s.last_source_event_type)} ${esc(short(s.last_source_event_id))}</span>
+      <span>computed / ingested by</span><span>${esc(s.computed_by)} / ${esc(s.ingested_by)}</span>
+      ${obsKv(q.supplier)}</div></div>` : `<div class="errbox">supplier_risk: ${esc((q.supplier||{}).error || "no row")}</div>`;
+  html += r ? reviewCard(r, "payment_reviews", "q4") : `<div class="errbox">payment_reviews: ${esc((q.review||{}).error || "no row")}</div>`;
+  html += `</div>`;
+  html += det("s4raw-"+q.queried_at, "Raw lookup responses", `<pre>${esc(pretty({supplier_risk: q.supplier, payment_reviews: q.review}))}</pre>`);
+  html += `<div class="note">This is a direct key lookup through the Fluss client, not a SQL query. To run SQL against Fluss, use the Query Workspace below.</div>`;
+  $("s4r").innerHTML = html;
+}
+
+// ------------------------------------------------------------ workspaces
+function sqlResult(x){
+  if (!x) return `<div class="empty">No statement has run in this workspace yet.</div>`;
+  const running = !["FINISHED","FAILED","CANCELED"].includes(x.status);
+  let h = `<div class="facts"><span>${pill(x.status)}</span><span>${esc(x.kind)} · ${esc(x.mode)}</span>
+    <span>Job ${x.job_id ? `<a class="mono" href="${esc(x.job_url)}" target="_blank" rel="noopener">${esc(x.job_id)}</a> ${x.job_state ? pill(x.job_state, x.job_state==="FINISHED"?"FINISHED":x.job_state==="FAILED"?"FAILED":x.job_state==="CANCELED"?"CANCELED":"RUNNING") : ""}` : "—"}</span>
+    <span>Duration <b>${esc(secs(x.duration_ms))}</b></span><span>Rows <b>${esc(x.row_count)}</b>${x.truncated ? " (limit reached)" : ""}</span><span class="mono small muted">${esc(x.id)}</span></div>`;
+  if (running) h += `<div class="phase"><span class="spin"></span>${esc(x.phase || "Running")}</div>`;
+  if (x.error) h += `<div class="errbox">${esc(x.error)}${x.error_detail ? det("sqlerr-"+x.id, "Error detail from the SQL Gateway", `<pre>${esc(x.error_detail)}</pre>`) : ""}</div>`;
+  if (x.note) h += `<div class="warnbox">${esc(x.note)}</div>`;
+  if (x.output) {
+    const o = x.output;
+    h += `<div class="${o.invalid ? "warnbox" : "okbox"}">Wrote <b>${esc(o.records)}</b> record(s) to <span class="mono">${esc(o.topic)}-0 [${esc(o.start)}, ${esc(o.end ?? "…")})</span>: ${esc(o.valid)} satisfy ${esc(S.app.computed_contract)}, ${esc(o.invalid)} do not.
+      ${Object.keys(o.run_ids||{}).length ? ` Runs: ${Object.entries(o.run_ids).map(([k,v]) => `<span class="mono">${esc(k)}</span>×${esc(v)}`).join(", ")}.` : ""}
+      ${(o.first_errors||[]).length ? `<ul style="margin:4px 0 0;padding-left:18px">${o.first_errors.map(e => `<li class="small">${esc(e)}</li>`).join("")}</ul>` : ""}
+      ${o.valid ? " Run stage 3 to ingest records of the current run." : ""}</div>`;
+  }
+  if ((x.columns||[]).length && !x.rows_omitted) {
+    const showKind = x.mode === "streaming" || (x.rows||[]).some(r => r.kind !== "INSERT");
+    h += `<div class="tw"><table><thead><tr>${showKind ? "<th>op</th>" : ""}${x.columns.map(c => `<th title="${esc(c.type)}">${esc(c.name)}<div class="small muted" style="text-transform:none">${esc(c.type)}</div></th>`).join("")}</tr></thead><tbody>${(x.rows||[]).map(r => `<tr>${showKind ? `<td class="mono small">${esc(({INSERT:"+I",UPDATE_BEFORE:"-U",UPDATE_AFTER:"+U",DELETE:"-D"})[r.kind] || r.kind)}</td>` : ""}${(r.fields||[]).map(f => `<td class="mono small">${esc(f === null ? "NULL" : typeof f === "object" ? JSON.stringify(f) : f)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    if (!(x.rows||[]).length && !running) h += `<div class="empty">The statement returned no rows.</div>`;
+  }
+  if (x.raw_last_response) h += det("sqlraw-"+x.id, "Raw SQL Gateway response (last page)", `<pre>${esc(pretty(x.raw_last_response))}</pre>`);
+  h += det("sqlstmt-"+x.id, "Executed statement", `<pre class="light">${esc(x.statement)}</pre>`);
+  return h;
+}
+function latestSql(ws){ return (S.sql_executions || []).find(x => x.workspace === ws); }
+function renderWorkspaces(){
+  const a = S.app;
+  // topics
+  const sel = $("ev-topic");
+  if (!sel.options.length) {
+    [[a.input_topic, a.input_topic + " (validated business events)"], [a.playground_topic, a.playground_topic + " (any JSON object)"]].forEach(([v,l]) => sel.add(new Option(l, v)));
+    sel.value = a.playground_topic;
+    updateEventHelp();
+  }
+  $("ev-recent").innerHTML = (S.recent_events || []).length ? `<div class="tw"><table><thead><tr><th>Sent</th><th>Topic</th><th>Key</th><th>Status</th><th>Partition @ offset</th><th>Record</th></tr></thead><tbody>${S.recent_events.map(e => `<tr>
+      <td class="small nowrap">${esc(clock(e.sent_at))}</td><td class="mono small">${esc(e.topic)}</td><td class="mono small">${esc(e.key ?? "null")}</td>
+      <td>${pill(e.status)}${e.error ? `<div class="small" style="color:var(--red)">${esc(e.error)}</div>` : ""}${e.warning ? `<div class="small" style="color:var(--amber)">${esc(e.warning)}</div>` : ""}</td>
+      <td class="mono small nowrap">${e.offset != null ? `p${e.partition} @ <b>${e.offset}</b><div class="muted">${esc(clock(e.kafka_timestamp))} · ${esc(e.send_ms)} ms</div>` : "—"}</td>
+      <td>${det("rec-"+e.id, (e.value && (e.value.event_type || e.value.category)) || "JSON", `<pre>${esc(pretty(e.value))}</pre>`)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No records submitted from this page yet.</div>`;
+  // SQL
+  $("sql-engine").textContent = "Engine: " + a.sql_engine + ".";
+  $("q-engine").textContent = "Engine: " + a.sql_engine + ", reading Fluss through the Fluss 1.0 Flink connector (catalog fluss_catalog).";
+  const L = a.limits;
+  $("sql-limits").textContent = `Limits: ${L.sql_max_rows} rows, batch ${L.sql_batch_timeout_s} s, streaming ${L.sql_streaming_max_s} s, ${L.sql_max_concurrent} concurrent statements.`;
+  const xs = latestSql("sql"), xq = latestSql("query");
+  $("sql-result").innerHTML = sqlResult(xs);
+  $("q-result").innerHTML = sqlResult(xq);
+  const runningSql = x => x && !["FINISHED","FAILED","CANCELED"].includes(x.status);
+  $("sql-run").disabled = runningSql(xs); $("sql-cancel").disabled = !runningSql(xs);
+  $("q-run").disabled = runningSql(xq); $("q-cancel").disabled = !runningSql(xq);
+  // Python
+  $("py-client").textContent = "Client: " + a.python_client + "." + (a.python_enabled ? "" : " Python execution is disabled in this deployment.");
+  $("py-limits").textContent = `Limits: ${L.python_timeout_s} s, 64 KiB output, memory and process limits of the runner container.`;
+  const p = (S.python_executions || [])[0];
+  $("py-run").disabled = !a.python_enabled || (p && p.status === "RUNNING");
+  $("py-cancel").disabled = !(p && p.status === "RUNNING");
+  $("py-result").innerHTML = !p ? `<div class="empty">No Python code has run yet.</div>` : `
+    <div class="facts"><span>${pill(p.status)}</span><span>Exit code <b>${esc(p.exit_code ?? "—")}</b></span><span>Duration <b>${esc(secs(p.duration_ms))}</b></span><span class="mono small muted">${esc(p.id)}</span>${p.truncated ? "<span>output truncated</span>" : ""}</div>
+    ${p.status === "RUNNING" ? `<div class="phase"><span class="spin"></span>Running in the python-runner container</div>` : ""}
+    ${p.error ? `<div class="errbox">${esc(p.error)}</div>` : ""}
+    <div><b class="small">stdout</b><pre>${esc(p.stdout || "")}</pre></div>
+    ${p.stderr ? `<div><b class="small">stderr</b><pre>${esc(p.stderr)}</pre></div>` : ""}
+    ${det("pycode-"+p.id, "Executed code", `<pre class="light">${esc(p.code)}</pre>`)}`;
+  // history
+  $("history").innerHTML = (S.history || []).length ? `<table><thead><tr><th>Started</th><th>Kind</th><th>Operation</th><th>Run</th><th>Status</th><th>Duration</th><th>Flink job</th><th>Detail</th></tr></thead><tbody>${S.history.map(h => `<tr>
+    <td class="small nowrap">${esc(clock(h.started_at))}</td><td class="small mono">${esc(h.kind)}</td><td class="small">${esc(h.label)}</td><td class="mono small">${esc(short(h.run_id))}</td>
+    <td>${pill(h.status)}</td><td class="small nowrap">${esc(secs(h.duration_ms))}</td><td class="small mono">${h.job_id ? `<a href="${esc(h.job_url)}" target="_blank" rel="noopener">${esc(h.job_id.substring(0,8))}…</a>` : "—"}</td><td class="small">${esc(h.detail || "")}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">No operations yet.</div>`;
+}
+
+const applied = {sql: null, query: null, py: null, ev: null};
+async function loadExamples(){
+  try {
+    const [ex, tp, py, ddl] = await Promise.all([fetch("/api/sql/examples").then(r => r.json()), fetch("/api/events/templates").then(r => r.json()),
+      fetch("/api/python/example").then(r => r.json()), fetch("/api/sql/ddl").then(r => r.json())]);
+    examples = ex; templates = tp;
+    $("sql-ddl").textContent = (ddl.ddl || []).join(";\n\n") + ";";
+    const fill = (selId, ws) => { const s = $(selId), keep = s.value; s.innerHTML = ""; examples.filter(e => e.workspace === ws).forEach(e => s.add(new Option(e.title + "  [" + e.mode + "]", e.id))); if (keep) s.value = keep; };
+    fill("sql-ex", "sql"); fill("q-ex", "query");
+    const ts = $("ev-tpl"), keepT = ts.value; ts.innerHTML = ""; templates.forEach(t => ts.add(new Option(t.label + " → " + t.topic, t.id))); if (keepT) ts.value = keepT;
+    // Editors follow the current run unless the user has changed their content.
+    if (!examplesLoaded || $("sql-text").value === applied.sql) applyExample("sql");
+    if (!examplesLoaded || $("q-text").value === applied.query) applyExample("query");
+    if (!examplesLoaded || $("py-code").value === applied.py) { $("py-code").value = py.code; applied.py = py.code; }
+    if (!examplesLoaded || $("ev-json").value === applied.ev) loadTemplate(examplesLoaded ? undefined : "simple");
+    examplesLoaded = true;
+  } catch (e) { /* retried on the next run change */ }
+}
+function applyExample(ws){
+  const id = $(ws === "sql" ? "sql-ex" : "q-ex").value;
+  const e = examples.find(x => x.id === id && x.workspace === ws); if (!e) return;
+  $(ws === "sql" ? "sql-text" : "q-text").value = e.statement;
+  $(ws === "sql" ? "sql-mode" : "q-mode").value = e.mode;
+  applied[ws] = e.statement;
+}
+function loadTemplate(id){
+  const t = templates.find(x => x.id === (id || $("ev-tpl").value)); if (!t) return;
+  $("ev-tpl").value = t.id; $("ev-topic").value = t.topic; $("ev-key").value = t.key || "";
+  $("ev-json").value = JSON.stringify(t.value, null, 2); $("ev-batch").checked = false; applied.ev = $("ev-json").value;
+  $("ev-help").textContent = t.description; validateEditor(); updateEventHelp();
+}
+function updateEventHelp(){
+  const biz = $("ev-topic").value === S.app.input_topic;
+  $("ev-key").placeholder = biz ? "run_id|supplier_id (filled from the record if empty)" : "optional";
+  $("ev-send").textContent = $("ev-batch").checked ? "Send batch" : "Send event";
+}
+function validateEditor(){
+  const t = $("ev-json").value.trim(), v = $("ev-v"), ta = $("ev-json");
+  if (!t) { v.textContent = ""; ta.classList.remove("invalid"); return false; }
+  try {
+    if ($("ev-batch").checked && !t.startsWith("[")) t.split(/\r?\n/).filter(l => l.trim()).forEach((l, i) => { try { JSON.parse(l); } catch (e) { throw new Error("line " + (i+1) + ": " + e.message); } });
+    else JSON.parse(t);
+    v.textContent = "Valid JSON"; v.className = "vmsg good"; ta.classList.remove("invalid"); return true;
+  } catch (e) { v.textContent = "Invalid JSON — " + e.message; v.className = "vmsg bad"; ta.classList.add("invalid"); return false; }
+}
+
+// ------------------------------------------------------------ main render
+function render(){
+  if (!S) return;
+  renderHeader();
+  const run = S.run;
+  if (!run) return;
+  if (render.lastRun !== run.run_id) { render.lastRun = run.run_id; loadExamples(); }
+  renderRunBar(run); renderPipe(run);
+  renderS1(run); renderS2(run); renderS3(run); renderS4(run);
+  renderWorkspaces();
+  S.__live = true;
+}
+
+// keep <details> open across re-renders
+document.addEventListener("toggle", e => { const d = e.target; if (d.tagName === "DETAILS" && d.dataset.k) { d.open ? openDetails.add(d.dataset.k) : openDetails.delete(d.dataset.k); } }, true);
+
+// ------------------------------------------------------------ wiring
+for (let n = 1; n <= 4; n++) $("b"+n).addEventListener("click", () => startStage(n));
+$("newrun").addEventListener("click", async () => {
+  const r = await api("POST", "/api/runs", {});
+  if (!r.ok) alert(r.body.error || ("HTTP " + r.status));
+});
+document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === t));
+  document.querySelectorAll("[data-panel]").forEach(p => p.classList.toggle("hidden", p.dataset.panel !== t.dataset.tab));
+  store.set("prsd-tab", t.dataset.tab);
+}));
+document.querySelectorAll(".subtab").forEach(t => t.addEventListener("click", () => {
+  document.querySelectorAll(".subtab").forEach(x => x.classList.toggle("on", x === t));
+  document.querySelectorAll("[data-subpanel]").forEach(p => p.classList.toggle("hidden", p.dataset.subpanel !== t.dataset.sub));
+}));
+$("token").addEventListener("change", () => store.set("prsd-token", $("token").value));
+$("ev-load").addEventListener("click", async () => { await loadExamples(); loadTemplate(); });
+$("ev-topic").addEventListener("change", updateEventHelp);
+$("ev-batch").addEventListener("change", () => { validateEditor(); updateEventHelp(); });
+$("ev-json").addEventListener("input", validateEditor);
+$("ev-fmt").addEventListener("click", () => {
+  const t = $("ev-json").value.trim();
+  try { $("ev-json").value = $("ev-batch").checked && !t.startsWith("[") ? t.split(/\r?\n/).filter(l=>l.trim()).map(l => JSON.stringify(JSON.parse(l))).join("\n") : JSON.stringify(JSON.parse(t), null, 2); } catch (e) {}
+  validateEditor();
+});
+$("ev-send").addEventListener("click", async () => {
+  if (!validateEditor()) { toast("ev-result", "Fix the JSON before sending: " + esc($("ev-v").textContent), "err"); return; }
+  const b = $("ev-send"); b.disabled = true;
+  toast("ev-result", "Sending…", "warn");
+  const r = await api("POST", "/api/events", {topic: $("ev-topic").value, key: $("ev-key").value, payload: $("ev-json").value, batch: $("ev-batch").checked});
+  b.disabled = false;
+  if (r.ok) {
+    const recs = r.body.records || [];
+    toast("ev-result", `Kafka acknowledged ${recs.length} record(s): ` + recs.map(x => `<span class="mono">${esc(x.topic)}-${esc(x.partition)} @ ${esc(x.offset)}</span>`).join(", ") + recs.filter(x => x.warning).map(x => `<div class="small">${esc(x.warning)}</div>`).join(""), "ok");
+  } else {
+    const errs = (r.body.record_errors || []).map(e => `<li>${e.index != null ? "record " + (e.index+1) + ": " : ""}${esc(e.errors.join("; "))}</li>`).join("");
+    toast("ev-result", `<b>${esc(r.body.error || ("HTTP " + r.status))}</b>${errs ? `<ul style="margin:4px 0 0;padding-left:18px">${errs}</ul>` : ""}`, "err");
+  }
+});
+$("sql-ex").addEventListener("change", () => applyExample("sql"));
+$("q-ex").addEventListener("change", () => applyExample("query"));
+async function runSql(ws){
+  const r = await api("POST", "/api/sql/executions", {statement: $(ws === "sql" ? "sql-text" : "q-text").value, mode: $(ws === "sql" ? "sql-mode" : "q-mode").value, workspace: ws});
+  if (!r.ok) toast(ws === "sql" ? "sql-result" : "q-result", esc(r.body.error || ("HTTP " + r.status)), "err");
+}
+async function cancelSql(ws){ const x = latestSql(ws); if (x) await api("POST", "/api/sql/executions/" + x.id + "/cancel", {}); }
+$("sql-run").addEventListener("click", () => runSql("sql")); $("q-run").addEventListener("click", () => runSql("query"));
+$("sql-cancel").addEventListener("click", () => cancelSql("sql")); $("q-cancel").addEventListener("click", () => cancelSql("query"));
+$("py-run").addEventListener("click", async () => {
+  const r = await api("POST", "/api/python/executions", {code: $("py-code").value});
+  if (!r.ok) toast("py-result", esc(r.body.error || ("HTTP " + r.status)), "err");
+});
+$("py-cancel").addEventListener("click", async () => { const p = (S.python_executions || [])[0]; if (p) await api("POST", "/api/python/executions/" + p.id + "/cancel", {}); });
+$("py-reset").addEventListener("click", async () => { const py = await fetch("/api/python/example").then(r => r.json()); $("py-code").value = py.code; applied.py = py.code; });
+(function restoreTab(){ const t = store.get("prsd-tab"); if (t) { const b = document.querySelector(`.tab[data-tab="${t}"]`); if (b) b.click(); } const tok = store.get("prsd-token"); if (tok) $("token").value = tok; })();
+
+// ------------------------------------------------------------ live state (SSE; refresh recovers server state)
+function connect(){
+  const es = new EventSource("/api/stream");
+  // The server sends named "snapshot" events; onmessage alone only sees unnamed ones.
+  const onSnapshot = ev => { try { S = JSON.parse(ev.data); render(); } catch (e) { console.error(e); } };
+  es.addEventListener("snapshot", onSnapshot);
+  es.onmessage = onSnapshot;
+  es.onerror = () => { $("banners").innerHTML = `<div class="banner err">Connection to the demo app lost; reconnecting…</div>`; };
+}
+fetch("/api/state").then(r => r.json()).then(s => { S = s; render(); connect(); }).catch(() => connect());
+</script>
+</body>
+</html>

@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Payment Risk Streamhouse Demo</title>
+<style>
+:root{
+  --paper:#f4f3eb; --card:#fbfaf5; --ink:#172624; --teal:#087e78; --mint:#b9e8d5; --orange:#ed7748;
+  --violet:#8360bd; --muted:#68746c; --line:#d2d9cf; --night:#111d1b; --red:#c2412d; --amber:#b7791f;
+  --ok:#0f7b52; --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--paper);color:var(--ink);font:14px/1.4 "Aptos","Segoe UI",Arial,sans-serif;font-synthesis:none}
+button,select,input{font:inherit}
+a{color:var(--teal)}
+.mono{font-family:var(--mono)}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+
+/* ---------- header ---------- */
+header{background:var(--night);color:#eef3ef;display:flex;align-items:center;gap:16px;padding:8px 16px;flex-wrap:wrap}
+header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.2px}
+header .sub{font-size:12px;color:#a9bab3}
+.badge{display:inline-block;border-radius:999px;padding:2px 9px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.badge.real{background:var(--teal);color:#fff}
+.badge.sim{border:1px solid var(--orange);color:#ffb08d}
+.hpills{margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.hpill{display:flex;align-items:center;gap:6px;background:#1e2f2c;border-radius:999px;padding:3px 10px;font-size:12px;cursor:default}
+.dot{width:9px;height:9px;border-radius:50%;background:#7a8a85;flex:none}
+.dot.UP{background:#3ccf8e}.dot.PENDING{background:#e6b54a}.dot.DOWN{background:#f05a44}
+header a.flink{color:#9fe6cf;font-size:12.5px;white-space:nowrap}
+
+/* ---------- controls ---------- */
+.controls{display:flex;align-items:center;gap:10px;padding:7px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:#efeee4}
+.controls select{max-width:300px;padding:4px 6px;border:1px solid var(--line);border-radius:6px;background:#fff}
+.btn{border:1px solid var(--teal);background:var(--teal);color:#fff;border-radius:6px;padding:4px 12px;cursor:pointer;font-weight:600}
+.btn.ghost{background:transparent;color:var(--teal)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.pace{display:flex;align-items:center;gap:6px;font-size:12.5px}
+.runchip{margin-left:auto;display:flex;gap:8px;align-items:center;font-size:12.5px;flex-wrap:wrap}
+.status{font-weight:700;border-radius:5px;padding:1px 8px;font-size:12px}
+.status.RUNNING,.status.INTRO{background:var(--mint);color:#0b4f4b}
+.status.PAUSED{background:#f6e3b4;color:#6b4a07}
+.status.COMPLETED{background:#d8efe3;color:var(--ok)}
+.status.STALLED,.status.FAILED{background:#f8d6cf;color:var(--red)}
+.tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.4px;border-radius:4px;padding:0 5px;text-transform:uppercase;vertical-align:1px}
+.tag.measured{background:#d4efe9;color:#05625e}
+.tag.inferred{background:#e7def5;color:#5b3c94}
+.tag.teaching{background:#fde3d6;color:#a2461f}
+.tag.sim{background:#fde3d6;color:#a2461f}
+
+main{padding:10px 16px 24px;display:flex;flex-direction:column;gap:10px;max-width:1700px;margin:0 auto}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px}
+.card h2{font-size:13px;margin:0;padding:8px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;font-weight:650}
+.card h2 .right{margin-left:auto;font-weight:400}
+.card .body{padding:10px 12px}
+
+/* ---------- architecture strip ---------- */
+.arch{display:grid;grid-template-columns:1fr 46px 1fr 46px 1fr 46px 1fr 46px 1fr;align-items:stretch;padding:12px 12px 6px}
+.node{border:1px solid var(--line);border-radius:10px;padding:8px;text-align:center;background:#fff;transition:box-shadow .3s,border-color .3s;min-width:0}
+.node .logo{height:38px;display:flex;align-items:center;justify-content:center;border-radius:6px;margin-bottom:4px}
+.node .logo img{max-height:34px;max-width:100%}
+.node .logo.plate{background:var(--night)}
+.node .title{font-weight:650;font-size:13px}
+.node .cap{font-size:12px;color:var(--teal);font-weight:600}
+.node .meta{font-size:11.5px;color:var(--muted);min-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.node.active{border-color:var(--teal);box-shadow:0 0 0 3px rgba(8,126,120,.18)}
+.node.flash{animation:flash 1.4s ease-out}
+.node.bad{border-color:var(--red);box-shadow:0 0 0 3px rgba(194,65,45,.15)}
+@keyframes flash{0%{box-shadow:0 0 0 0 rgba(8,126,120,.7)}100%{box-shadow:0 0 0 14px rgba(8,126,120,0)}}
+.gen-ico{font-size:24px;line-height:34px}
+.conn{position:relative;display:flex;align-items:center}
+.conn .line{height:3px;width:100%;background:var(--line);border-radius:2px;position:relative;overflow:hidden}
+.conn.on .line{background:linear-gradient(90deg,var(--mint),var(--teal),var(--mint));background-size:200% 100%;animation:flow 1s linear infinite}
+.conn.bad .line{background:var(--red)}
+.conn .arrow{position:absolute;right:-2px;top:50%;transform:translateY(-50%);border-left:7px solid var(--line);border-top:5px solid transparent;border-bottom:5px solid transparent}
+.conn.on .arrow{border-left-color:var(--teal)}
+@keyframes flow{from{background-position:200% 0}to{background-position:0 0}}
+.hops{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;padding:0 12px 10px;font-size:12px}
+.hop{background:#f3f2ea;border-radius:6px;padding:4px 8px;min-height:24px}
+
+/* ---------- steps ---------- */
+.steps{display:flex;gap:8px;padding:10px 12px;overflow-x:auto}
+.step{flex:1 1 0;min-width:150px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:#fff;cursor:pointer;position:relative}
+.step.sel{outline:2px solid var(--teal)}
+.step .lbl{font-weight:650;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .typ{font-family:var(--mono);font-size:10.5px;color:var(--muted)}
+.step .bt{font-size:11.5px}
+.step .st{position:absolute;top:6px;right:6px;font-size:10px;font-weight:700;border-radius:4px;padding:0 5px}
+.st.PENDING{background:#eceae0;color:var(--muted)}
+.st.EMITTING,.st.AWAITING_FLUSS{background:var(--mint);color:#0b4f4b}
+.st.OBSERVED{background:#d8efe3;color:var(--ok)}
+.st.SENT_DUPLICATE{background:#e7def5;color:#5b3c94}
+.st.STALLED{background:#f8d6cf;color:var(--red)}
+.step .lat{font-size:11px;color:var(--muted)}
+.narr{padding:8px 12px;display:flex;gap:14px;align-items:flex-start;border-top:1px solid var(--line)}
+.narr .cap{flex:1}
+.narr .cap b{color:var(--teal)}
+.narr .count{white-space:nowrap;font-size:12.5px}
+.stall{background:#fbe4df;border:1px solid #efb3a7;color:#7d2416;border-radius:8px;padding:8px 12px;font-weight:600}
+
+/* ---------- three columns ---------- */
+.cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr) minmax(0,1.05fr);gap:10px}
+.cols .card .body{max-height:calc(100vh - 430px);min-height:240px;overflow:auto}
+pre.json{margin:0;font:12px/1.45 var(--mono);white-space:pre-wrap;word-break:break-word}
+.j-k{color:#5b3c94}.j-s{color:#0b5f5b}.j-n{color:#a2461f}.j-b{color:#8360bd}.j-z{color:#9aa39d}
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:3px 12px;font-size:13px}
+.kv .k{color:var(--muted)}
+.kv .v{min-width:0;overflow-wrap:anywhere}
+.kv .v.changed{background:#fff2b8;border-radius:3px;padding:0 3px;margin:0 -3px;transition:background 2s}
+.band{font-weight:800;border-radius:5px;padding:1px 8px;font-size:12px}
+.band.NORMAL{background:#d8efe3;color:var(--ok)}
+.band.ELEVATED{background:#f6e3b4;color:#6b4a07}
+.band.HIGH{background:#f8d6cf;color:var(--red)}
+.ver{background:var(--night);color:#fff;border-radius:5px;padding:1px 7px;font-weight:700;font-size:12px}
+.src{font-size:11.5px;color:var(--muted);margin-top:8px;border-top:1px dashed var(--line);padding-top:6px}
+.fail{background:#fbe4df;color:#7d2416;border-radius:6px;padding:6px 8px;margin-bottom:8px;font-size:12.5px;font-weight:600}
+.stale{opacity:.5;filter:grayscale(.6)}
+.outcome{border-radius:8px;padding:8px 10px;margin-bottom:8px;font-weight:800;font-size:16px;display:flex;align-items:center;gap:8px}
+.outcome.MANUAL_REVIEW{background:#fde3d6;color:#8a3412;border:1px solid #f3b293}
+.outcome.NO_RULE_MATCH{background:#e9ece6;color:#38463f;border:1px solid var(--line)}
+.outcome.REVIEW_INCOMPLETE_CONTEXT{background:#f6e3b4;color:#6b4a07;border:1px solid #e8c877}
+.outcome small{font-weight:500;font-size:12px}
+.check{display:grid;grid-template-columns:26px minmax(0,1fr);gap:6px;padding:5px 0;border-bottom:1px solid #ecebe2}
+.check .ic{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:13px}
+.ic.TRUE{background:var(--red)}.ic.FALSE{background:#7a8a85}.ic.UNKNOWN{background:var(--amber)}
+.check .nm{font-family:var(--mono);font-size:12.5px;font-weight:700}
+.check .ev{font-size:12px;color:var(--muted)}
+.expl{font-size:12.5px;margin-top:8px;background:#f3f2ea;border-radius:6px;padding:6px 8px}
+.disc{font-size:11.5px;color:var(--muted);margin-top:6px}
+.empty{color:var(--muted);font-style:italic;padding:16px 0;text-align:center}
+
+/* ---------- inspector / evidence ---------- */
+.lower{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:10px}
+.tabs{display:flex;gap:4px}
+.tabs button{border:1px solid var(--line);background:#fff;border-radius:6px;padding:2px 9px;cursor:pointer;font-size:12px}
+.tabs button.on{background:var(--teal);color:#fff;border-color:var(--teal)}
+.insp pre{max-height:300px;overflow:auto}
+.timing{display:grid;grid-template-columns:max-content max-content minmax(0,1fr);gap:4px 10px;font-size:12.5px;align-items:baseline}
+.legend div{margin:3px 0;font-size:12.5px}
+.health-list .row{display:grid;grid-template-columns:14px 130px minmax(0,1fr);gap:8px;padding:4px 0;border-bottom:1px solid #ecebe2;font-size:12.5px;align-items:baseline}
+.hint{color:var(--amber);font-size:11.5px}
+
+/* ---------- startup overlay ---------- */
+#startup{position:fixed;inset:0;background:rgba(17,29,27,.72);display:none;align-items:center;justify-content:center;z-index:10;padding:16px}
+#startup .box{background:var(--paper);border-radius:12px;max-width:760px;width:100%;padding:18px 22px;max-height:90vh;overflow:auto}
+#startup h3{margin:0 0 4px}
+#startup .row{display:grid;grid-template-columns:16px 190px minmax(0,1fr);gap:8px;padding:7px 0;border-bottom:1px solid var(--line);font-size:13px}
+#conn{position:fixed;bottom:12px;right:12px;background:var(--red);color:#fff;border-radius:8px;padding:6px 12px;font-size:12.5px;display:none;z-index:11}
+.toast{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);background:var(--night);color:#fff;border-radius:8px;padding:8px 14px;font-size:13px;display:none;z-index:12;max-width:90vw}
+
+@media (max-width:1100px){
+  .cols,.lower{grid-template-columns:1fr}
+  .cols .card .body{max-height:none}
+  .arch{grid-template-columns:1fr;gap:4px}
+  .conn{height:16px;justify-content:center}.conn .line{width:3px;height:16px}.conn .arrow{display:none}
+  .hops{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Payment Risk Streamhouse Demo</h1>
+    <div class="sub">Business events → Kafka → Flink → Fluss → native lookup → this page</div>
+  </div>
+  <span class="badge real" title="These are real running services inside Docker Compose">Real services: Kafka · Flink · Fluss</span>
+  <span class="badge sim" title="No database, CDC connector or payment system is deployed">Simulated business events (CDC-shaped)</span>
+  <div class="hpills" id="hpills"></div>
+  <a class="flink" id="flinkLink" href="http://localhost:8081" target="_blank" rel="noopener">Flink UI ↗</a>
+</header>
+
+<div class="controls">
+  <label for="scenario" class="small muted">Scenario</label>
+  <select id="scenario"></select>
+  <button class="btn" id="replay">Replay</button>
+  <button class="btn ghost" id="pause">Pause events</button>
+  <div class="pace"><span class="tag teaching">teaching</span>
+    <label for="paceRange">Pause between events</label>
+    <input type="range" id="paceRange" min="0" max="20" step="1">
+    <span id="paceVal" class="mono">–</span>
+  </div>
+  <label class="small"><input type="checkbox" id="raw"> Raw JSON rows</label>
+  <div class="runchip" id="runchip"></div>
+</div>
+
+<main>
+  <section class="card">
+    <h2>Data path <span class="small muted">— every box is a real container; the moving line is a visualization of the known path</span>
+      <span class="right small"><span class="tag measured">measured</span> <span class="tag inferred">inferred</span> <span class="tag teaching">teaching-only</span></span></h2>
+    <div class="arch">
+      <div class="node" id="n-gen"><div class="logo"><span class="gen-ico" aria-hidden="true">⚙</span></div>
+        <div class="title">Scenario generator</div><div class="cap">Simulated business sources</div><div class="meta" id="m-gen">demo-app</div></div>
+      <div class="conn" id="c1"><div class="line"></div><div class="arrow"></div></div>
+      <div class="node" id="n-kafka"><div class="logo"><img src="/assets/logos/apache-kafka.png" alt="Apache Kafka logo"></div>
+        <div class="title">Apache Kafka</div><div class="cap">Kafka carries changes</div><div class="meta" id="m-kafka">business-events · 1 partition</div></div>
+      <div class="conn" id="c2"><div class="line"></div><div class="arrow"></div></div>
+      <div class="node" id="n-flink"><div class="logo"><img src="/assets/logos/apache-flink.svg" alt="Apache Flink logo"></div>
+        <div class="title">Apache Flink</div><div class="cap">Flink correlates signals</div><div class="meta" id="m-flink">keyed state + rule</div></div>
+      <div class="conn" id="c3"><div class="line"></div><div class="arrow"></div></div>
+      <div class="node" id="n-fluss"><div class="logo plate"><img src="/assets/logos/apache-fluss.svg" alt="Apache Fluss logo"></div>
+        <div class="title">Apache Fluss</div><div class="cap">Fluss maintains queryable rows</div><div class="meta" id="m-fluss">3 primary-key tables</div></div>
+      <div class="conn" id="c4"><div class="line"></div><div class="arrow"></div></div>
+      <div class="node" id="n-look"><div class="logo"><span class="gen-ico" aria-hidden="true">⌕</span></div>
+        <div class="title">Live lookup</div><div class="cap">Native primary-key reads</div><div class="meta" id="m-look">Fluss Java client</div></div>
+    </div>
+    <div class="hops">
+      <div class="hop" id="hop1"><span class="tag measured">measured</span> Producer acknowledgment appears here.</div>
+      <div class="hop" id="hop2"><span class="tag inferred">inferred</span> Kafka → Flink → Fluss travel is drawn, not acknowledged per hop. Flink RUNNING is job health, not proof an event completed.</div>
+      <div class="hop" id="hop3"><span class="tag measured">measured</span> A native Fluss lookup that returns the expected row confirms delivery.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Scenario steps <span class="small muted" id="runtitle"></span>
+      <span class="right small"><span class="tag teaching">teaching</span> accelerated business-time replay</span></h2>
+    <div class="steps" id="steps"></div>
+    <div class="narr" id="narr"></div>
+  </section>
+
+  <div id="stallbox"></div>
+
+  <div class="cols">
+    <section class="card">
+      <h2>Event sent to Kafka <span class="right small" id="evtTags"></span></h2>
+      <div class="body" id="eventPanel"><div class="empty">No event sent yet.</div></div>
+    </section>
+    <section class="card">
+      <h2>Supplier context <span class="mono small muted">payment_risk.supplier_risk</span><span class="right" id="supVer"></span></h2>
+      <div class="body" id="supplierPanel"><div class="empty">Waiting for the first row in Fluss.</div></div>
+    </section>
+    <section class="card">
+      <h2>Payment review <span class="mono small muted">payment_risk.payment_reviews</span><span class="right small" id="revTag"></span></h2>
+      <div class="body" id="reviewPanel"><div class="empty">The rule is evaluated only when a payment request arrives.</div></div>
+    </section>
+  </div>
+
+  <div class="lower">
+    <section class="card insp" id="inspector">
+      <h2>Inspector: native lookup result
+        <span class="tabs right" id="inspTabs">
+          <button data-t="supplier_risk" class="on">supplier_risk</button>
+          <button data-t="payment_reviews">payment_reviews</button>
+          <button data-t="event_receipts">event_receipts</button>
+        </span></h2>
+      <div class="body">
+        <div class="small" id="inspMeta"></div>
+        <pre class="json" id="inspJson"></pre>
+        <div style="margin-top:6px"><button class="btn ghost" id="relookup">Run this lookup again now</button>
+          <span class="small muted" id="relookupNote"></span></div>
+      </div>
+    </section>
+    <section class="card">
+      <h2>Timing and evidence <span class="right small muted">selected step</span></h2>
+      <div class="body">
+        <div class="timing" id="timing"></div>
+        <div class="legend" style="margin-top:10px">
+          <div><span class="tag measured">measured</span> directly observed: Kafka acknowledgment; rows returned by native Fluss lookups.</div>
+          <div><span class="tag inferred">inferred</span> drawn from the known topology: the animated Kafka → Flink → Fluss travel.</div>
+          <div><span class="tag teaching">teaching-only</span> pauses between events, captions, and accelerated business time. Never latency.</div>
+        </div>
+        <div class="health-list" id="healthList" style="margin-top:10px"></div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<div id="startup"><div class="box">
+  <h3>Starting the pipeline…</h3>
+  <div class="muted small" style="margin-bottom:8px">Each check below is a real API call (Kafka Admin, Fluss Admin + lookup, Flink REST), repeated until it passes. The Northstar scenario starts automatically once everything is UP.</div>
+  <div id="startupRows"></div>
+  <div id="bootRows" style="margin-top:10px"></div>
+  <div class="small muted" style="margin-top:10px">Still red after a few minutes? Run <span class="mono">docker compose ps</span> and <span class="mono">docker compose logs bootstrap</span>. See docs/troubleshooting.md.</div>
+</div></div>
+<div id="conn">Connection to the demo server lost — reconnecting… (no events are generated by reconnecting)</div>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const S = { snap:null, offset:0, sel:null, pinned:false, insp:"supplier_risk", lastStates:{}, verRows:{}, changed:{}, paceDrag:false };
+
+function esc(v){ return String(v===null||v===undefined?"":v).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+function jsonHtml(o){
+  const s = JSON.stringify(o, null, 2);
+  if (s === undefined) return "";
+  return esc(s).replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false)\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g,
+    (m, str, colon, bool) => str ? (colon ? `<span class="j-k">${str}</span>${colon}` : `<span class="j-s">${str}</span>`)
+      : bool ? `<span class="j-b">${m}</span>` : m === "null" ? `<span class="j-z">null</span>` : `<span class="j-n">${m}</span>`);
+}
+function hms(iso){ if(!iso) return "–"; const d=new Date(iso); return d.toISOString().substring(11,23)+"Z"; }
+function hm(iso){ if(!iso) return "–"; return new Date(iso).toISOString().substring(11,19)+" UTC"; }
+function money(minor, cur){ if(minor===null||minor===undefined) return "–";
+  const neg = minor<0; let s = String(Math.abs(minor)).padStart(3,"0"); const whole=s.slice(0,-2).replace(/\B(?=(\d{3})+(?!\d))/g,","), frac=s.slice(-2);
+  return `${cur} ${neg?"-":""}${whole}.${frac}`; }
+function offs(sec){ const m=Math.floor(sec/60), s=sec%60; return `T+${m}:${String(s).padStart(2,"0")}`; }
+function toast(msg){ const t=$("toast"); t.textContent=msg; t.style.display="block"; clearTimeout(toast.h); toast.h=setTimeout(()=>t.style.display="none",5000); }
+
+// ------------------------------------------------------------------ data
+function connect(){
+  const es = new EventSource("/api/stream");
+  es.addEventListener("snapshot", e => { $("conn").style.display="none"; accept(JSON.parse(e.data)); });
+  es.onerror = () => { $("conn").style.display="block"; };
+}
+function accept(snap){
+  S.offset = Date.parse(snap.server_time) - Date.now();
+  S.snap = snap;
+  render();
+}
+async function post(path, body){
+  const r = await fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body||{})});
+  let j={}; try{ j=await r.json(); }catch(_){}
+  return {status:r.status, body:j};
+}
+
+// ------------------------------------------------------------------ render
+function render(){
+  const s=S.snap; if(!s) return;
+  const run=s.run;
+  renderHeader(s); renderStartup(s); renderControls(s);
+  const steps = run ? run.steps : [];
+  if (run && (!S.pinned || !steps.some(x=>x.step_id===S.sel))) S.sel = currentStep(run)?.step_id || null;
+  renderArch(s); renderSteps(s); renderNarr(s); renderStall(s);
+  renderEvent(s); renderSupplier(s); renderReview(s); renderInspector(s); renderTiming(s); renderHealth(s);
+  if (run) for (const st of run.steps) S.lastStates[run.run_id+st.step_id]=st.state;
+}
+function currentStep(run){
+  let cur=null;
+  for(const st of run.steps){ if(st.state!=="PENDING") cur=st; }
+  return cur || run.steps[0];
+}
+function comp(s,id){ return (s.health.components||[]).find(c=>c.id===id) || {status:"PENDING",detail:""}; }
+
+function renderHeader(s){
+  const names={kafka:"Kafka",fluss:"Fluss",flink:"Flink",job:"Job"};
+  $("hpills").innerHTML = (s.health.components||[]).map(c=>
+    `<span class="hpill" title="${esc(c.label+": "+c.detail)}"><span class="dot ${esc(c.status)}"></span>${esc(names[c.id]||c.id)}</span>`).join("");
+  const link=$("flinkLink"); link.href = s.health.flink_job_url || s.health.flink_ui_url;
+  link.textContent = s.health.job_id ? "Flink UI: job ↗" : "Flink UI ↗";
+}
+function renderStartup(s){
+  const show = s.health.overall==="STARTING" && !s.run;
+  $("startup").style.display = show ? "flex" : "none";
+  if(!show) return;
+  $("startupRows").innerHTML = s.health.components.map(c=>`<div class="row"><span class="dot ${esc(c.status)}"></span><b>${esc(c.label)}</b>
+    <span>${esc(c.detail)}${c.hint?`<div class="hint">${esc(c.hint)}</div>`:""}</span></div>`).join("");
+  const b=s.health.bootstrap;
+  $("bootRows").innerHTML = b ? `<div class="small"><b>Bootstrap:</b> ${esc(b.state)}</div>` + b.steps.map(st=>
+    `<div class="row"><span class="dot ${st.state==="DONE"?"UP":st.state==="FAILED"?"DOWN":"PENDING"}"></span><span>${esc(st.label)}</span>
+    <span>${esc(st.detail||st.state)}${st.state==="FAILED"&&st.hint?`<div class="hint">${esc(st.hint)}</div>`:""}</span></div>`).join("")
+    : `<div class="small muted">Bootstrap has not written its status yet.</div>`;
+}
+function renderControls(s){
+  const sel=$("scenario"), run=s.run;
+  if (sel.options.length !== s.scenarios.length){
+    sel.innerHTML = s.scenarios.map(x=>`<option value="${esc(x.id)}" title="${esc(x.summary)}">${esc(x.variant)}</option>`).join("");
+    if (run) sel.value = run.scenario_id;
+  }
+  const active = run && ["INTRO","RUNNING","PAUSED"].includes(run.status);
+  $("replay").disabled = !!active;
+  $("replay").title = active ? "A run is in progress. Runs are serialized." : "Start a fresh run with a new run ID";
+  $("pause").textContent = s.app.generation_paused ? "Resume events" : "Pause events";
+  if(!S.paceDrag){ $("paceRange").value = Math.round(s.app.teaching_pause_ms/1000); }
+  $("paceVal").textContent = Math.round((S.paceDrag?$("paceRange").value*1000:s.app.teaching_pause_ms)/1000)+" s";
+  $("runchip").innerHTML = run ? `<span class="mono small">${esc(run.run_id)}</span><span class="status ${esc(run.status)}">${esc(run.status)}</span>
+    ${run.origin==="autostart"?'<span class="small muted">auto-started</span>':""}` : `<span class="muted small">No run yet</span>`;
+}
+
+function renderArch(s){
+  const run=s.run, st=run?currentStep(run):null;
+  const set=(id,cls,on)=>$(id).classList.toggle(cls,!!on);
+  ["c1","c2","c3","c4"].forEach(c=>{ set(c,"on",false); set(c,"bad",false); });
+  ["n-gen","n-kafka","n-flink","n-fluss","n-look"].forEach(n=>{ set(n,"active",false); set(n,"bad",false); });
+  set("n-kafka","bad",comp(s,"kafka").status==="DOWN");
+  set("n-flink","bad",comp(s,"flink").status==="DOWN"||comp(s,"job").status==="DOWN");
+  set("n-fluss","bad",comp(s,"fluss").status==="DOWN");
+  $("m-flink").textContent = comp(s,"job").status==="UP" ? "job RUNNING (health only)" : (s.health.job_state||"job not running");
+  if(!st){ return; }
+  const state = st.state;
+  if(state==="EMITTING"){ set("n-gen","active",1); set("c1","on",1); }
+  if(state==="AWAITING_FLUSS"){ set("n-kafka","active",1); set("c2","on",1); set("c3","on",1); set("n-flink","active",1); }
+  if(state==="STALLED"){ set("c2","bad",1); set("c3","bad",1); }
+  if(state==="OBSERVED"){ set("n-fluss","active",1); set("c4","on",1); set("n-look","active",1);
+    const k=run.run_id+st.step_id; if(S.lastStates[k] && S.lastStates[k]!=="OBSERVED"){ ["n-fluss","n-look"].forEach(n=>{ const e=$(n); e.classList.remove("flash"); void e.offsetWidth; e.classList.add("flash"); }); } }
+  $("m-gen").textContent = st.event_id ? st.event_type : "demo-app";
+  $("m-kafka").textContent = st.ack ? `p${st.ack.partition} @ offset ${st.ack.offset}` : "business-events · 1 partition";
+  $("m-fluss").textContent = st.observation ? (st.observation.receipt?.disposition||"row visible") : "3 primary-key tables";
+  $("m-look").textContent = st.observation ? `${st.observation.poll_attempts} lookup(s)` : "Fluss Java client";
+  $("hop1").innerHTML = `<span class="tag measured">measured</span> ` + (st.ack
+    ? `Kafka ack: partition ${st.ack.partition}, offset <b>${st.ack.offset}</b>, ${st.ack.send_to_ack_ms} ms after send (acks=all).`
+    : `Producer acknowledgment appears here.`);
+  $("hop2").innerHTML = `<span class="tag inferred">inferred</span> ` + (state==="AWAITING_FLUSS"
+    ? `In flight: drawn along the known path. Waiting for this event's output in Fluss (timeout ${Math.round(run.step_timeout_ms/1000)} s).`
+    : state==="STALLED" ? `<b style="color:var(--red)">No output observed.</b> The run is not advanced on a timer.`
+    : `Kafka → Flink → Fluss travel is drawn, not acknowledged per hop. Flink RUNNING is job health, not proof an event completed.`);
+  $("hop3").innerHTML = `<span class="tag measured">measured</span> ` + (st.observation
+    ? `Observed in Fluss <b>${st.observation.ack_to_observed_ms} ms</b> after the ack (upper bound; polled every ${run.poll_interval_ms} ms).`
+    : st.state==="SENT_DUPLICATE" ? `Duplicate record: Flink drops it by event_id, so no new row is expected. The next step proves it.`
+    : `A native Fluss lookup that returns the expected row confirms delivery.`);
+}
+
+function renderSteps(s){
+  const run=s.run;
+  $("runtitle").textContent = run ? `— ${run.title}` : "";
+  if(!run){ $("steps").innerHTML = `<div class="empty" style="flex:1">The default scenario starts automatically once the pipeline is ready.</div>`; return; }
+  const label={PENDING:"pending",EMITTING:"sending",AWAITING_FLUSS:"in flight",OBSERVED:"in Fluss",SENT_DUPLICATE:"duplicate sent",STALLED:"stalled"};
+  $("steps").innerHTML = run.steps.map(st=>`<div class="step ${st.step_id===S.sel?"sel":""}" data-step="${esc(st.step_id)}">
+     <span class="st ${esc(st.state)}">${esc(label[st.state]||st.state)}</span>
+     <div class="lbl" title="${esc(st.label)}">${esc(st.label)}</div>
+     <div class="typ">${esc(st.event_type||"")}</div>
+     <div class="bt">${esc(hm(st.occurred_at))} <span class="muted">${esc(offs(st.business_offset_seconds))}</span></div>
+     <div class="lat">${st.ack?`offset ${st.ack.offset}`:""}${st.observation?` · +${st.observation.ack_to_observed_ms} ms`:""}</div></div>`).join("");
+}
+function renderNarr(s){
+  const run=s.run;
+  if(!run){ $("narr").innerHTML = `<div class="cap">ABC Company has paid Northstar Logistics for three years. Watch what happens when the bank details change.</div>`; return; }
+  const st=run.steps.find(x=>x.step_id===S.sel)||currentStep(run);
+  let cap;
+  if(run.status==="INTRO") cap=`<b>${esc(run.title)}.</b> ${esc(run.summary)}`;
+  else cap=`<b>${esc(st.label)}:</b> ${esc(st.caption)}${st.state==="OBSERVED"||st.state==="SENT_DUPLICATE"?`<div class="small" style="margin-top:3px">→ ${esc(st.notice)}</div>`:""}`;
+  if(run.status==="COMPLETED") cap += `<div class="small" style="margin-top:3px"><b>Run complete.</b> ${esc(run.status_detail||"")} The result holds until you press Replay.</div>`;
+  $("narr").innerHTML = `<div class="cap">${cap}</div><div class="count" id="countdown"></div>`;
+  tick();
+}
+function tick(){
+  const s=S.snap, el=$("countdown"); if(!s||!el) return;
+  const run=s.run;
+  if(run && run.teaching_pause_until){
+    const left=Math.max(0,Math.ceil((Date.parse(run.teaching_pause_until)-(Date.now()+S.offset))/1000));
+    el.innerHTML = `<span class="tag teaching">teaching pause</span> ${run.status==="INTRO"?"first event":"next event"} in ${left} s <span class="muted">(not processing time)</span>`;
+  } else if(run && s.app.generation_paused && ["RUNNING","PAUSED","INTRO"].includes(run.status)) {
+    el.innerHTML = `<span class="tag teaching">paused</span> event generation paused`;
+  } else el.innerHTML="";
+}
+function renderStall(s){
+  const run=s.run;
+  $("stallbox").innerHTML = run && (run.status==="STALLED"||run.status==="FAILED")
+    ? `<div class="stall">⚠ ${esc(run.status_detail||"Pipeline stalled")}<div class="small" style="font-weight:400;margin-top:3px">Nothing was invented to fill the gap. Fix the red component (see Health), then press Replay.</div></div>` : "";
+}
+
+function selStep(s){ const run=s.run; return run ? (run.steps.find(x=>x.step_id===S.sel)||currentStep(run)) : null; }
+
+function renderEvent(s){
+  const st=selStep(s);
+  if(!st||!st.event){ $("eventPanel").innerHTML=`<div class="empty">No event sent yet.</div>`; $("evtTags").innerHTML=""; return; }
+  const sim = st.event_type==="BENEFICIARY_CHANGED" ? `<span class="tag sim">simulated CDC-shaped</span> ` : `<span class="tag sim">simulated</span> `;
+  $("evtTags").innerHTML = sim + (st.ack?`<span class="tag measured">acked</span>`:"");
+  const ack = st.ack ? `<div class="kv" style="margin-bottom:8px"><span class="k">Kafka ack</span><span class="v mono">partition ${st.ack.partition} · offset ${st.ack.offset} · ${esc(hms(st.ack.acked_at))} · ${st.ack.send_to_ack_ms} ms</span>
+      <span class="k">Record key</span><span class="v mono">${esc(st.event.run_id+"|"+st.event.supplier_id)}</span></div>` : "";
+  const dup = st.duplicate_of ? `<div class="fail" style="background:#efe7fb;color:#4b2d84">Exact re-delivery of step “${esc(st.duplicate_of)}” (same event_id).</div>` : "";
+  $("eventPanel").innerHTML = dup + ack + `<pre class="json">${jsonHtml(st.event)}</pre>`;
+}
+
+function liveRow(s, table){
+  const L = s.live?.[table];
+  if(!L) return {};
+  return {cur:L.current, lastOk:L.last_ok};
+}
+function stepRows(run, key){ let r=null; for(const st of run.steps){ if(st.observation?.[key]) r=st.observation[key]; } return r; }
+
+function renderSupplier(s){
+  const run=s.run, panel=$("supplierPanel");
+  if(!run){ panel.innerHTML=`<div class="empty">Waiting for the first row in Fluss.</div>`; $("supVer").innerHTML=""; return; }
+  const {cur,lastOk}=liveRow(s,"supplier_risk");
+  let row=null, note="", failing="";
+  if(cur && cur.ok && cur.found){ row=cur.row; note=`<span class="tag measured">live</span> native lookup at ${esc(hms(cur.respondedAt))} · ${cur.durationMs.toFixed(1)} ms · re-read every ${Math.round(s.app.live_poll_ms/1000)} s`; }
+  else if(cur && !cur.ok){ failing=`<div class="fail">Fluss lookup failing: ${esc(cur.error)}</div>`;
+    if(lastOk&&lastOk.found){ row=lastOk.row; note=`<b>STALE</b>, not live: last successful read at ${esc(hms(lastOk.respondedAt))}`; } }
+  else if(cur && cur.ok && !cur.found){ note=`native lookup at ${esc(hms(cur.respondedAt))}: no row yet for this run`; }
+  if(!row && !failing){ panel.innerHTML=`<div class="empty">Waiting for Flink to write this run's first supplier row.</div><div class="src">${note}</div>`; $("supVer").innerHTML=""; return; }
+  if(!row){ panel.innerHTML=failing+`<div class="empty">No successful read to show. Nothing is substituted.</div>`; $("supVer").innerHTML=""; return; }
+  // remember each version's row to highlight what changed
+  const vk=run.run_id+":"+row.context_version;
+  if(!S.verRows[vk]){ S.verRows[vk]=row; const prev=S.verRows[run.run_id+":"+(row.context_version-1)];
+    S.changed[vk] = prev ? Object.keys(row).filter(k=>!["updated_at","last_source_event_id","last_source_event_type","last_source_occurred_at","context_version","signal_reason"].includes(k) && JSON.stringify(row[k])!==JSON.stringify(prev[k])) : []; }
+  const ch=new Set(S.changed[vk]||[]);
+  $("supVer").innerHTML = `<span class="ver" title="context_version">v${esc(row.context_version)}</span>`;
+  if($("raw").checked){ panel.innerHTML = failing+`<div class="${failing?"stale":""}"><pre class="json">${jsonHtml(row)}</pre></div><div class="src">${note}</div>`; return; }
+  const f=(k,label,val)=>`<span class="k">${label}</span><span class="v ${ch.has(k)?"changed":""}">${val}</span>`;
+  const dev = row.identity_device_id ? `${esc(row.identity_device_id)} ${row.identity_device_known?'<span class="muted">(known)</span>':'<b style="color:var(--red)">(previously unseen)</b>'}` : `<span class="muted">none linked</span>`;
+  panel.innerHTML = failing + `<div class="${failing?"stale":""}"><div class="kv">
+    ${f("supplier_name","Supplier",`<b>${esc(row.supplier_name||"–")}</b> <span class="mono small muted">${esc(row.supplier_id)}</span>`)}
+    ${f("relationship_years","Relationship",`${esc(row.relationship_years??"–")} years`)}
+    ${f("current_beneficiary_masked","Beneficiary",`<span class="mono">${esc(row.baseline_beneficiary_masked||"–")}</span>${row.current_beneficiary_masked!==row.baseline_beneficiary_masked?` → <b class="mono">${esc(row.current_beneficiary_masked)}</b>`:' <span class="muted">(unchanged)</span>'}`)}
+    ${f("bank_change_id","Bank change",row.bank_change_id?`<span class="mono">${esc(row.bank_change_id)}</span> at ${esc(hm(row.bank_change_occurred_at))} by <span class="mono">${esc(row.bank_change_actor_id)}</span>`:'<span class="muted">none</span>')}
+    ${f("identity_device_id","Linked device",dev)}
+    ${f("unfamiliar_device_evidence","Unseen-device evidence",row.unfamiliar_device_evidence?'<b style="color:var(--red)">yes, for this change</b>':"no")}
+    ${f("signal_band","Signal band",`<span class="band ${esc(row.signal_band)}">${esc(row.signal_band)}</span> <span class="small muted">${esc(row.signal_reason)}</span>`)}
+    ${f("last_source_event_id","Last source event",`<span class="mono small">${esc(row.last_source_event_type)} · ${esc(row.last_source_event_id)}</span>`)}
+    ${f("updated_at","Written by Flink at",`<span class="mono small">${esc(hms(row.updated_at))}</span>`)}
+  </div></div><div class="small muted" style="margin-top:6px">HIGH means suspicious evidence, not confirmed fraud. The band reflects the latest observed signals; the rule checks evidence age against the payment's own time.</div>
+  <div class="src">${note}</div>`;
+}
+
+function renderReview(s){
+  const run=s.run, panel=$("reviewPanel");
+  if(!run){ panel.innerHTML=`<div class="empty">The rule is evaluated only when a payment request arrives.</div>`; $("revTag").innerHTML=""; return; }
+  const {cur,lastOk}=liveRow(s,"payment_reviews");
+  let row=null, failing="", note="";
+  if(cur && cur.ok && cur.found){ row=cur.row; note=`<span class="tag measured">live</span> native lookup at ${esc(hms(cur.respondedAt))} · ${cur.durationMs.toFixed(1)} ms`; }
+  else if(cur && !cur.ok){ failing=`<div class="fail">Fluss lookup failing: ${esc(cur.error)}</div>`; if(lastOk&&lastOk.found){ row=lastOk.row; note=`<b>STALE</b>, not live: last successful read at ${esc(hms(lastOk.respondedAt))}`; } }
+  if(!row){ panel.innerHTML = failing + `<div class="empty">No review row for ${esc(run.payment_id||"this run")} yet.<br>The rule is evaluated only when the payment request arrives, using that payment's business time.</div>`; $("revTag").innerHTML=""; return; }
+  $("revTag").innerHTML = `<span class="tag measured">from Fluss</span>`;
+  if($("raw").checked){ panel.innerHTML = failing+`<div class="${failing?"stale":""}"><pre class="json">${jsonHtml(row)}</pre></div><div class="src">${note}</div>`; return; }
+  const sup = (liveRow(s,"supplier_risk").cur||{}).row;
+  const label={MANUAL_REVIEW:"MANUAL_REVIEW",NO_RULE_MATCH:"NO_RULE_MATCH",REVIEW_INCOMPLETE_CONTEXT:"REVIEW_INCOMPLETE_CONTEXT"}[row.outcome]||row.outcome;
+  const sub={MANUAL_REVIEW:"route to a human reviewer",NO_RULE_MATCH:"No match for this demo rule",REVIEW_INCOMPLETE_CONTEXT:"required evidence missing: cannot decide"}[row.outcome]||"";
+  const ic=v=>`<span class="ic ${esc(v)}">${v==="TRUE"?"✓":v==="FALSE"?"✗":"?"}</span>`;
+  const secs=row.seconds_since_bank_change;
+  const ev1 = secs===null||secs===undefined ? "no beneficiary change on record" : `${secs} s between change and payment (window 0–600 s)`;
+  const ev2 = row.check_unfamiliar_device==="TRUE" ? `identity <span class="mono">${esc(row.evidence_identity_event_id)}</span>: same change, actor and session; device previously unseen`
+     : row.check_unfamiliar_device==="FALSE" ? (row.evidence_identity_event_id?`linked activity used a known device (<span class="mono">${esc(row.evidence_identity_event_id)}</span>)`:"no change to link")
+     : esc(row.missing_evidence||"evidence not required or missing");
+  const ev3 = `${money(row.amount_minor,row.currency)} vs threshold ${row.currency==="USD"?"USD 50,000.00":"(USD only)"}, strictly greater`;
+  const verNote = sup ? (sup.context_version===row.context_version_used ? `matches the current supplier_risk row (v${sup.context_version})`
+     : `supplier_risk has since advanced to v${sup.context_version}`) : "";
+  panel.innerHTML = failing + `<div class="${failing?"stale":""}">
+   <div class="outcome ${esc(row.outcome)}">${esc(label)} <small>— ${esc(sub)}</small></div>
+   <div class="check">${ic(row.check_recent_change)}<div><div class="nm">recent_change</div><div class="ev">${ev1}</div></div></div>
+   <div class="check">${ic(row.check_unfamiliar_device)}<div><div class="nm">unfamiliar_device</div><div class="ev">${ev2}</div></div></div>
+   <div class="check">${ic(row.check_large_payment)}<div><div class="nm">large_payment</div><div class="ev">${esc(ev3)}</div></div></div>
+   <div class="kv small" style="margin-top:8px"><span class="k">Payment</span><span class="v mono">${esc(row.payment_id)} · ${esc(money(row.amount_minor,row.currency))} · ${esc(hm(row.payment_occurred_at))}</span>
+     <span class="k">Context used</span><span class="v"><span class="ver">v${esc(row.context_version_used)}</span> <span class="muted">${esc(verNote)}</span></span>
+     <span class="k">Source event</span><span class="v mono">${esc(row.source_payment_event_id)} (p${esc(row.source_kafka_partition)}@${esc(row.source_kafka_offset)})</span>
+     <span class="k">Rule</span><span class="v mono">${esc(row.rule_version)}</span></div>
+   <div class="expl"><span class="tag teaching">template</span> ${esc(row.explanation)}</div>
+   <div class="disc">Deterministic rule output, not an AI agent. No payment is executed, authorized or released by this demo.</div></div>
+   <div class="src">${note}</div>`;
+}
+
+function renderInspector(s){
+  document.querySelectorAll("#inspTabs button").forEach(b=>b.classList.toggle("on",b.dataset.t===S.insp));
+  const run=s.run; let obs=null, meta="";
+  if(run){
+    if(S.insp==="event_receipts"){
+      const st=selStep(s);
+      if(st && st.observation){ obs={table:`${s.app.fluss_database}.event_receipts`, key:{run_id:run.run_id,event_id:st.event_id}, row:st.observation.receipt,
+          observedAt:st.observation.observed_at, source:st.observation.source};
+        meta=`<span class="tag measured">measured</span> receipt for step “${esc(st.label)}”, read when the runner confirmed delivery (${esc(hms(st.observation.observed_at))}).`; }
+      else meta=`No receipt observed for the selected step yet.`;
+    } else {
+      const L=s.live?.[S.insp];
+      obs = L?.current || null;
+      if(obs) meta = obs.ok ? `<span class="tag measured">measured</span> queried ${esc(hms(obs.queriedAt))}, answered ${esc(hms(obs.respondedAt))} (${obs.durationMs.toFixed(1)} ms) · ${obs.found?"row found":"no row for this key"}`
+        : `<b style="color:var(--red)">Lookup FAILED</b> at ${esc(hms(obs.queriedAt))}: ${esc(obs.error)}. No cached or generated row is shown as live.`;
+      else meta="No lookup yet for this run.";
+    }
+  } else meta="No run yet.";
+  $("inspMeta").innerHTML = meta + `<div class="muted">Data source: ${esc(s.app.read_method)} → Fluss TabletServer. Not Kafka, not app memory.</div>`;
+  $("inspJson").innerHTML = obs ? jsonHtml(obs) : "";
+}
+
+function renderTiming(s){
+  const st=selStep(s), run=s.run;
+  if(!st||!st.event){ $("timing").innerHTML=`<span class="muted">Select a step that has been sent.</span>`; return; }
+  const rc=st.observation?.receipt||{};
+  const ack=st.ack?Date.parse(st.ack.acked_at):null;
+  const d=iso=>{ if(!iso||!ack) return ""; const v=Date.parse(iso)-ack; return (v>=0?"+":"")+v+" ms vs ack"; };
+  const rows=[
+    ["occurred_at", st.event.occurred_at, `<span class="tag teaching">business time</span> ${esc(offs(st.business_offset_seconds))} in the replayed story`],
+    ["emitted_at", st.event.emitted_at, `generator handed the record to the producer`],
+    ["Kafka ack", st.ack?.acked_at, st.ack?`<span class="tag measured">measured</span> ${st.ack.send_to_ack_ms} ms after send`:""],
+    ["Flink processed_at", rc.processed_at, rc.processed_at?`${d(rc.processed_at)} <span class="muted">(Flink TaskManager clock, same host)</span>`:""],
+    ["seen in Fluss", st.observation?.observed_at, st.observation?`<span class="tag measured">measured</span> +${st.observation.ack_to_observed_ms} ms vs ack (≤ ${run.poll_interval_ms} ms polling granularity)`:""],
+  ];
+  $("timing").innerHTML = rows.map(r=>`<span class="muted">${esc(r[0])}</span><span class="mono">${esc(r[1]?hms(r[1]):"–")}</span><span>${r[2]}</span>`).join("")
+   + `<span></span><span></span><span class="small muted">Business minutes are replayed in seconds of wall-clock time, so latency is never computed from occurred_at. Pauses between steps are teaching-only.</span>`;
+}
+
+function renderHealth(s){
+  $("healthList").innerHTML = `<div class="small" style="font-weight:650;margin-bottom:2px">Service health (${esc(s.health.overall)})</div>` +
+    s.health.components.map(c=>`<div class="row"><span class="dot ${esc(c.status)}"></span><b>${esc(c.label)}</b><span>${esc(c.detail)}${c.hint?`<div class="hint">${esc(c.hint)}</div>`:""}</span></div>`).join("") +
+    `<div class="small muted" style="margin-top:4px">Rule ${esc(s.app.rule_version)}: ${esc(s.app.rule)}</div>`;
+}
+
+// ------------------------------------------------------------------ controls
+$("replay").onclick = async () => {
+  const id=$("scenario").value;
+  let r = await post("/api/runs",{scenario_id:id});
+  if(r.status===503 && confirm("The pipeline is not healthy, so this run will probably stall.\nStart anyway to watch the failure?")){
+    r = await post("/api/runs",{scenario_id:id, force:true});
+  }
+  if(r.status===202){ S.pinned=false; toast(`Started ${r.body.run_id}`); }
+  else if(r.status===409) toast("A run is still in progress. Runs are serialized.");
+  else if(r.status!==503) toast(`Could not start: ${r.body.error||r.status}`);
+};
+$("pause").onclick = () => post("/api/generation",{paused:!S.snap.app.generation_paused});
+$("paceRange").oninput = () => { S.paceDrag=true; $("paceVal").textContent=$("paceRange").value+" s"; };
+$("paceRange").onchange = async () => { await post("/api/pace",{pause_ms:Number($("paceRange").value)*1000}); S.paceDrag=false; };
+$("raw").onchange = render;
+$("steps").onclick = e => { const el=e.target.closest(".step"); if(!el) return; S.sel=el.dataset.step; S.pinned=true; render(); };
+$("inspTabs").onclick = e => { const b=e.target.closest("button"); if(!b) return; S.insp=b.dataset.t; render(); };
+$("relookup").onclick = async () => {
+  const s=S.snap, run=s?.run; if(!run) return;
+  let q;
+  if(S.insp==="supplier_risk") q=`supplier_id=${encodeURIComponent(run.supplier_id)}`;
+  else if(S.insp==="payment_reviews") q=`payment_id=${encodeURIComponent(run.payment_id||"")}`;
+  else { const st=selStep(s); if(!st?.event_id) return; q=`event_id=${encodeURIComponent(st.event_id)}`; }
+  const path=`/api/lookup/${S.insp}?run_id=${encodeURIComponent(run.run_id)}&${q}`;
+  const r=await fetch(path); const j=await r.json();
+  $("inspMeta").innerHTML = `<span class="tag measured">measured</span> on-demand: <span class="mono">GET ${esc(path)}</span> → HTTP ${r.status}`;
+  $("inspJson").innerHTML = jsonHtml(j);
+  $("relookupNote").textContent = "Showing the on-demand result until the next update.";
+};
+setInterval(tick, 250);
+fetch("/api/state").then(r=>r.json()).then(accept).catch(()=>{});
+connect();
+</script>
+</body>
+</html>
