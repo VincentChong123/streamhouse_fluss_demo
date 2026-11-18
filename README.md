@@ -16,9 +16,9 @@ flowchart LR
 
 > **What is real and what is generated.** Kafka, Flink, the Flink SQL Gateway and Fluss are real
 > services in Docker Compose. The business events are generated; the beneficiary change is a
-> CDC-shaped record, but no database or CDC connector is deployed. The payment rule is a small
-> deterministic rule, not a fraud model and not an AI agent. **Nothing is ever paid, authorized or
-> released.** All names, devices and accounts are synthetic.
+> CDC-shaped record, but no database or CDC connector is deployed. Payment review uses a
+> deterministic rule. **Nothing is ever paid, authorized or released.** All names, devices and
+> accounts are synthetic.
 
 ## Quick start
 
@@ -201,10 +201,10 @@ The included path is **Kafka → Flink processing → Kafka results → Flink in
 The deterministic payment decision is computed in the processing job, before Fluss ingestion;
 it is not a separate service reading Fluss to authorize a payment.
 
-Real database CDC, an always-on processing deployment, lakehouse tiering, historical lakehouse
-queries and AI-assisted investigation require additional integrations. They are not started by
-this repository's Compose command. The displayed explanation is a deterministic template built
-from recorded evidence, not an LLM response. This playground never authorizes or releases payments.
+Real database CDC, an always-on processing deployment, lakehouse tiering and historical lakehouse
+queries require additional integrations. They are not started by this repository's Compose
+command. The displayed explanation uses a fixed template populated from recorded evidence.
+This playground never authorizes or releases payments.
 
 ## Workspaces
 
@@ -308,7 +308,7 @@ No mocked integration tests.
   Kafka, Fluss SQL and native pyfluss reads, and refresh preserving the result.
 - Gitleaks 8.30.1 and a separate review of machine paths and identifiers found no credentials
   or private machine paths in the publication files. Runtime data, logs, credentials,
-  environment files and local agent/editor settings are excluded from Git.
+  environment files and local workspace settings are excluded from Git.
 
 These publication checks cover startup and the working data path. The broader fault/recovery
 suite below records the previous maintainer run; it was not rerun as part of the publication check.
@@ -388,8 +388,8 @@ docs/                   architecture, walkthrough, configuration, troubleshootin
 
 ## Not included
 
-Real database CDC, lakehouse tiering (Paimon/Iceberg), LLM or AI agents, payment execution,
-Kubernetes, TLS, Schema Registry, multi-partition ordering and production HA.
+Real database CDC, lakehouse tiering (Paimon/Iceberg), historical lakehouse queries, payment
+execution, Kubernetes, TLS, Schema Registry, multi-partition ordering and production HA.
 
 ## License and trademarks
 
