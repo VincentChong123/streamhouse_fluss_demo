@@ -88,9 +88,10 @@ captured when you press the button, then finishes. Records that arrive later are
 execution and are picked up when you run the stage again. Processing and ingestion run one at a
 time, so they do not compete for task slots.
 
-**Runs.** *Start new demo* creates a fresh run ID. Topics and tables are kept; every job and query
-filters by run ID, so earlier runs never leak into the new one. Only one stage operation runs at a
-time; a second submission gets HTTP 409.
+**Runs.** *Start new demo* creates a fresh run ID. Topics and tables are kept; the four-stage
+workflow processes and looks up the current run's records. The workspaces can also query records
+from earlier runs: include a `run_id` filter when you want only the current run. Only one stage
+operation runs at a time; a second submission gets HTTP 409.
 
 ## The scenario: The $75,000 Payment That Looked Legitimate
 
@@ -104,25 +105,106 @@ beneficiary account ending 1842.
 | 10:02 | Identity activity links that exact change (same change, session and actor) to a previously unseen device | v3, HIGH |
 | 10:03 | USD 75,000 payment request | `payment_reviews`: **MANUAL_REVIEW**, evaluated against context v3 |
 
-The full payment rule is evaluated when the payment request arrives:
+### Supplier signals and payment decisions
+
+The supplier's `signal_band` describes the latest observed evidence. It is separate from the
+payment's `outcome`:
+
+- **NORMAL:** no beneficiary change has been observed.
+- **ELEVATED:** a beneficiary change has been observed without matching unfamiliar-device evidence.
+- **HIGH:** the change has matching unfamiliar-device evidence. HIGH indicates suspicious
+  evidence; it does not by itself determine the payment decision or confirm fraud.
+
+The baseline records the supplier's recurring payment amount; it does not introduce a separate
+scheduled-payable event. The full payment rule checks the actual request's amount and business
+time when the payment request is processed:
 
 ```text
 recent_change     = 0 <= payment.occurred_at - bank_change.occurred_at <= 10 minutes
 unfamiliar_device = identity activity matched to that change (change_id, actor_id, session_id)
                     AND device_is_known == false
+                    AND identity.occurred_at <= payment.occurred_at
 large_payment     = currency == USD AND amount_minor > 5_000_000      (cents)
 
 MANUAL_REVIEW if all three are TRUE
 ```
 
-Each condition is TRUE, FALSE or UNKNOWN. Missing required evidence gives
-`REVIEW_INCOMPLETE_CONTEXT`, never an implicit pass; otherwise the outcome is `NO_RULE_MATCH`. The
-review records the context version it used and the event IDs of its evidence. These signals
-indicate potential fraud, not confirmed fraud.
+Each condition is TRUE, FALSE or UNKNOWN. Required evidence takes precedence over a rule match:
+
+| Condition | Outcome |
+| --- | --- |
+| Supplier baseline is missing, or a recent change lacks linked identity evidence | `REVIEW_INCOMPLETE_CONTEXT` |
+| Required evidence is available and all three rule conditions are TRUE | `MANUAL_REVIEW` |
+| Required evidence is available and the three-condition rule does not match | `NO_RULE_MATCH` |
+
+`NO_RULE_MATCH` means this rule did not match; it is not payment approval. The review records
+the context version it used, the rule parameters and the event IDs of its evidence. The
+ten-minute window and USD 50,000 threshold are this application's policy settings, not built-in
+Flink or Fluss rules.
+
+There is **no automatic ten-minute expiry timer** for the supplier signal band. The payment rule
+compares the payment's event time with the bank change's event time each time it evaluates a
+request. A stored HIGH band can therefore remain HIGH while a later payment does not match the
+recent-change condition.
+
+The 10:00–10:03 sequence describes business event time. `updated_at` and `evaluated_at` record
+actual Flink processing time; they need not match the story clock. Neither a context version nor
+an update timestamp alone proves that all source events have been processed.
+
+Implementation: [supplier signal bands](common/src/main/java/demo/paymentrisk/common/correlation/SignalBand.java),
+[payment rule](common/src/main/java/demo/paymentrisk/common/rule/PaymentReviewRule.java),
+[scenario events](scenarios/01-northstar-suspicious.json).
 
 The UI has exactly one scenario. Negative cases (known device, unrelated change, amount exactly
 USD 50,000, stale change, missing identity, out-of-order identity, duplicate delivery) are kept as
 test fixtures in `scenarios/` and run in the unit tests.
+
+### Stored results and queries
+
+Stage 3 writes three **primary-key tables** in the default Fluss database, `payment_risk`:
+
+| Table | Primary key | Contents |
+| --- | --- | --- |
+| `supplier_risk` | `(run_id, supplier_id)` | Latest supplier context, `signal_band`, version and source evidence |
+| `payment_reviews` | `(run_id, payment_id)` | Deterministic outcome, condition checks and evidence used |
+| `event_receipts` | `(run_id, event_id)` | Processing disposition and provenance for each event |
+
+The built-in flow does not create a Fluss log table. Kafka retains the input events and computed
+results according to its retention configuration; Fluss maintains the keyed output rows.
+
+After ingestion succeeds, select **Query Workspace → SQL → batch**. Its generated point-query
+examples already contain the current run ID. For the default Northstar scenario, the equivalent
+queries below use the actual table and field names; replace `<run_id>` with your current run ID:
+
+```sql
+SELECT supplier_id, signal_band, context_version,
+       bank_change_occurred_at, updated_at
+FROM fluss_catalog.payment_risk.supplier_risk
+WHERE run_id = '<run_id>' AND supplier_id = 'SUP-NORTHSTAR';
+```
+
+```sql
+SELECT payment_id, outcome, check_recent_change,
+       check_unfamiliar_device, check_large_payment,
+       context_version_used, explanation
+FROM fluss_catalog.payment_risk.payment_reviews
+WHERE run_id = '<run_id>' AND payment_id = 'PAY-NS-0001';
+```
+
+Run one statement at a time. SQL is executed by Flink through the SQL Gateway; Fluss supplies
+the stored data. Stage 4 instead uses the native Java client, and the Python workspace uses
+pyfluss. Full columns and keys: [table schemas](common/src/main/java/demo/paymentrisk/common/TableSchemas.java).
+
+### Architecture scope
+
+The included path is **Kafka → Flink processing → Kafka results → Flink ingestion → Fluss**.
+The deterministic payment decision is computed in the processing job, before Fluss ingestion;
+it is not a separate service reading Fluss to authorize a payment.
+
+Real database CDC, an always-on processing deployment, lakehouse tiering, historical lakehouse
+queries and AI-assisted investigation require additional integrations. They are not started by
+this repository's Compose command. The displayed explanation is a deterministic template built
+from recorded evidence, not an LLM response. This playground never authorizes or releases payments.
 
 ## Workspaces
 
