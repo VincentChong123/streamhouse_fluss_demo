@@ -1,0 +1,134 @@
+name: Marimo Phased CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-flight:
+    name: 1. Pre-flight (DAG & Wasm Sanity)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies via uv
+        run: |
+          if ! command -v uv >/dev/null 2>&1; then
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          fi
+          cd notebooks && uv sync --extra test
+
+      - name: Marimo DAG & Cycle Check
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run marimo check 00_simulation.py 01_kafka.py 02_flink.py 03_fluss.py
+
+      - name: Verify Wasm Export
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          mkdir -p build/wasm
+          cd notebooks
+          for nb in 0*.py; do
+            [ -f "$nb" ] || continue
+            echo "Validating Wasm export for $nb..."
+            uv run marimo export html-wasm "$nb" -o "../build/wasm/$(basename "$nb" .py).html"
+          done
+
+  detect-phases:
+    name: Detect Changed Phases
+    runs-on: ubuntu-latest
+    outputs:
+      phase1: ${{ steps.filter.outputs.phase1 || steps.act-fallback.outputs.enabled }}
+      phase2: ${{ steps.filter.outputs.phase2 || steps.act-fallback.outputs.enabled }}
+      phase3: ${{ steps.filter.outputs.phase3 || steps.act-fallback.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Under local act, test all phases by default
+      - name: Enable all phases under act
+        if: ${{ env.ACT }}
+        id: act-fallback
+        run: echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect Git changes
+        if: ${{ !env.ACT }}
+        id: filter
+        run: |
+          BASE_REF=$(git rev-parse --verify origin/main 2>/dev/null || git rev-parse HEAD~1)
+          CHANGED=$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null || echo "notebooks/")
+          echo "$CHANGED" | grep -qE '(01_kafka\.py|shared/)' && echo "phase1=true" >> "$GITHUB_OUTPUT" || echo "phase1=false" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" | grep -qE '(02_flink\.py|shared/)' && echo "phase2=true" >> "$GITHUB_OUTPUT" || echo "phase2=false" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" | grep -qE '(03_fluss\.py|shared/)' && echo "phase3=true" >> "$GITHUB_OUTPUT" || echo "phase3=false" >> "$GITHUB_OUTPUT"
+
+  test-phase1-kafka:
+    name: Test Phase 1 (Kafka)
+    needs: [pre-flight, detect-phases]
+    if: ${{ needs.detect-phases.outputs.phase1 == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Kafka
+        run: docker compose up -d kafka
+      - name: Run Phase 1 Tests via uv
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run --extra test pytest -v tests/test_phases.py -k "test_phase1"
+
+  test-phase2-flink:
+    name: Test Phase 2 (Flink)
+    needs: [pre-flight, detect-phases]
+    if: ${{ needs.detect-phases.outputs.phase2 == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Flink Cluster
+        run: docker compose up -d kafka flink-jobmanager flink-taskmanager
+      - name: Run Phase 2 Tests via uv
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run --extra test pytest -v tests/test_phases.py -k "test_phase2"
+
+  test-phase3-fluss:
+    name: Test Phase 3 (Fluss)
+    needs: [pre-flight, detect-phases]
+    if: ${{ needs.detect-phases.outputs.phase3 == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Full Streamhouse Stack
+        run: docker compose up -d
+      - name: Run Phase 3 & E2E Tests via uv
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run --extra test pytest -v tests/test_phases.py -k "test_phase3 or test_simulation"
+
+  teardown:
+    name: Cleanup Stack
+    needs: [test-phase1-kafka, test-phase2-flink, test-phase3-fluss]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        if: ${{ !env.ACT }}
+      - if: ${{ !env.ACT }}
+        run: docker compose down -v
