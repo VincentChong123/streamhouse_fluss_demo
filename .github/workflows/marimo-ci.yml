@@ -1,4 +1,4 @@
-name: Marimo Phased CI
+name: Marimo Notebooks CI
 
 on:
   push:
@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   pre-flight:
-    name: 1. Pre-flight (DAG & Wasm Sanity)
+    name: 1. Offline Unit Tests, Lint, DAG & Wasm Export
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -32,11 +32,23 @@ jobs:
           fi
           cd notebooks && uv sync --extra test
 
+      - name: Ruff Lint Check
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run ruff check .
+
       - name: Marimo DAG & Cycle Check
         run: |
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
           cd notebooks
           uv run marimo check 00_simulation.py 01_kafka.py 02_flink.py 03_fluss.py
+
+      - name: Offline Unit & Compliance Tests
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run pytest -v -m "not integration"
 
       - name: Verify Wasm Export
         run: |
@@ -49,86 +61,84 @@ jobs:
             uv run marimo export html-wasm "$nb" -o "../build/wasm/$(basename "$nb" .py).html"
           done
 
-  detect-phases:
-    name: Detect Changed Phases
+  detect-integration:
+    name: Detect Integration Scope
     runs-on: ubuntu-latest
     outputs:
-      phase1: ${{ steps.filter.outputs.phase1 || steps.act-fallback.outputs.enabled }}
-      phase2: ${{ steps.filter.outputs.phase2 || steps.act-fallback.outputs.enabled }}
-      phase3: ${{ steps.filter.outputs.phase3 || steps.act-fallback.outputs.enabled }}
+      run_integration: ${{ steps.filter.outputs.run_integration || steps.act-fallback.outputs.enabled }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Under local act, test all phases by default
-      - name: Enable all phases under act
-        if: ${{ env.ACT }}
+      - name: Enable integration under act or manual dispatch
+        if: ${{ env.ACT || github.event_name == 'workflow_dispatch' }}
         id: act-fallback
         run: echo "enabled=true" >> "$GITHUB_OUTPUT"
 
       - name: Inspect Git changes
-        if: ${{ !env.ACT }}
+        if: ${{ !env.ACT && github.event_name != 'workflow_dispatch' }}
         id: filter
         run: |
           BASE_REF=$(git rev-parse --verify origin/main 2>/dev/null || git rev-parse HEAD~1)
           CHANGED=$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null || echo "notebooks/")
-          echo "$CHANGED" | grep -qE '(01_kafka\.py|shared/)' && echo "phase1=true" >> "$GITHUB_OUTPUT" || echo "phase1=false" >> "$GITHUB_OUTPUT"
-          echo "$CHANGED" | grep -qE '(02_flink\.py|shared/)' && echo "phase2=true" >> "$GITHUB_OUTPUT" || echo "phase2=false" >> "$GITHUB_OUTPUT"
-          echo "$CHANGED" | grep -qE '(03_fluss\.py|shared/)' && echo "phase3=true" >> "$GITHUB_OUTPUT" || echo "phase3=false" >> "$GITHUB_OUTPUT"
+          if echo "$CHANGED" | grep -qE '^(notebooks/|demo-app/|flink-job/|common/|compose\.yaml)'; then
+            echo "run_integration=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_integration=false" >> "$GITHUB_OUTPUT"
+          fi
 
-  test-phase1-kafka:
-    name: Test Phase 1 (Kafka)
-    needs: [pre-flight, detect-phases]
-    if: ${{ needs.detect-phases.outputs.phase1 == 'true' }}
+  integration-streamhouse:
+    name: 2. Live Integration Tests (Full Streamhouse Stack)
+    needs: [pre-flight, detect-integration]
+    if: ${{ needs.detect-integration.outputs.run_integration == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Start Kafka
-        run: docker compose up -d kafka
-      - name: Run Phase 1 Tests via uv
-        run: |
-          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-          cd notebooks
-          uv run --extra test pytest -v tests/test_phases.py -k "test_phase1"
 
-  test-phase2-flink:
-    name: Test Phase 2 (Flink)
-    needs: [pre-flight, detect-phases]
-    if: ${{ needs.detect-phases.outputs.phase2 == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Start Flink Cluster
-        run: docker compose up -d kafka flink-jobmanager flink-taskmanager
-      - name: Run Phase 2 Tests via uv
-        run: |
-          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
-          cd notebooks
-          uv run --extra test pytest -v tests/test_phases.py -k "test_phase2"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
-  test-phase3-fluss:
-    name: Test Phase 3 (Fluss)
-    needs: [pre-flight, detect-phases]
-    if: ${{ needs.detect-phases.outputs.phase3 == 'true' }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
       - name: Start Full Streamhouse Stack
-        run: docker compose up -d
-      - name: Run Phase 3 & E2E Tests via uv
+        run: docker compose up --build -d
+
+      - name: Wait for Kafka, Flink, Fluss & demo-app READY
+        run: |
+          python3 - <<'PY'
+          import json, sys, time, urllib.request
+          deadline = time.time() + 300
+          last = None
+          while time.time() < deadline:
+              try:
+                  with urllib.request.urlopen("http://localhost:8090/api/state", timeout=5) as r:
+                      data = json.loads(r.read().decode("utf-8"))
+                      overall = (data.get("health") or {}).get("overall")
+                      last = overall
+                      if overall == "READY":
+                          print("Streamhouse stack is READY.")
+                          sys.exit(0)
+              except Exception as exc:
+                  last = str(exc)
+              time.sleep(3)
+          print(f"Timed out waiting for READY (last: {last})", file=sys.stderr)
+          sys.exit(1)
+          PY
+
+      - name: Run Live Integration Tests via uv
         run: |
           export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
           cd notebooks
-          uv run --extra test pytest -v tests/test_phases.py -k "test_phase3 or test_simulation"
+          uv sync --extra test
+          uv run pytest -v -m integration tests/test_phases.py
 
-  teardown:
-    name: Cleanup Stack
-    needs: [test-phase1-kafka, test-phase2-flink, test-phase3-fluss]
-    if: ${{ always() }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        if: ${{ !env.ACT }}
-      - if: ${{ !env.ACT }}
-        run: docker compose down -v
+      - name: Dump Compose Logs on Failure
+        if: ${{ failure() }}
+        run: |
+          docker compose ps
+          docker compose logs --tail=100 demo-app bootstrap kafka fluss-coordinator fluss-tablet flink-jobmanager flink-taskmanager
+
+      - name: Tear Down Stack
+        if: ${{ always() && !env.ACT }}
+        run: docker compose down --volumes --remove-orphans

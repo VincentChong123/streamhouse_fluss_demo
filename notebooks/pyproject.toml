@@ -30,3 +30,12 @@ packages = ["shared"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+addopts = "-m 'not integration'"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: live end-to-end tests requiring the running Streamhouse Docker Compose stack",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

@@ -371,6 +371,10 @@ UI versions: the app serves `web/${DEMO_UI_VERSION}.html` at `/`; the default is
 Earlier versions stay in `web/` and are reachable at `/web/vN.html` (`v1` belongs to the earlier
 continuous-pipeline design and no longer matches the API).
 
+Optional Python developer playbooks: [`notebooks/`](notebooks/README.md) provides interactive
+Marimo notebooks (`00_simulation.py`, `01_kafka.py`, `02_flink.py`, `03_fluss.py`) that drive the
+same `demo-app` REST API alongside `web/v2.html` without replacing the default browser UI.
+
 ## Repository layout
 
 ```text
@@ -379,6 +383,7 @@ common/                 event codec, table + computed-result contracts, rule, co
 flink-job/              bounded processing (Kafka→Kafka) and ingestion (Kafka→Fluss) jobs
 demo-app/               stage orchestration, producer, Fluss lookups, SQL/Python workspaces, UI server, verifier
 web/v2.html             current UI (buildless, no CDN); web/v1.html kept
+notebooks/              optional interactive Marimo Python playbooks driving the demo-app HTTP API
 docker/                 app build, Flink image (+ Kafka SQL connector), python-runner
 scenarios/              the Northstar scenario + negative-case fixtures for tests
 schemas/                business-event JSON schema + examples
