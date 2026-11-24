@@ -9,7 +9,7 @@ def _():
     import marimo as mo
 
     from shared.client import StreamhouseClient, StreamhousePipelineError
-    from shared.render import render_sql_result
+    from shared.render import render_error_callout, render_sql_result
     from shared.scenario import RULE_SUMMARY, SUPPLIER_ID
 
     mo.md(
@@ -30,6 +30,7 @@ def _():
         StreamhouseClient,
         StreamhousePipelineError,
         mo,
+        render_error_callout,
         render_sql_result,
     )
 
@@ -44,7 +45,14 @@ def _(mo):
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_proc, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_proc,
+    mo,
+    render_error_callout,
+):
     mo.stop(
         not btn_proc.value,
         mo.md(
@@ -129,10 +137,7 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_proc, mo):
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Stage 2 failed:** {_exc}"),
-            kind="danger",
-        )
+        _out = render_error_callout(mo, "Stage 2 failed", _exc)
     _out
     return
 
@@ -145,6 +150,7 @@ async def _(
     app_url,
     btn_probe_fluss,
     mo,
+    render_error_callout,
 ):
     mo.stop(not btn_probe_fluss.value)
     _client = StreamhouseClient(app_url=app_url.value)
@@ -168,10 +174,7 @@ async def _(
                 kind="warn",
             )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Fluss pre-ingestion lookup failed:** {_exc}"),
-            kind="danger",
-        )
+        _out = render_error_callout(mo, "Fluss pre-ingestion lookup failed", _exc)
     _out
     return
 
@@ -220,7 +223,14 @@ def _(mo):
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_sql_examples, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_sql_examples,
+    mo,
+    render_error_callout,
+):
     mo.stop(not btn_sql_examples.value)
     _client = StreamhouseClient(app_url=app_url.value)
     try:
@@ -244,9 +254,7 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_sql_exampl
             }
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Failed to load SQL examples:** {_exc}"), kind="danger"
-        )
+        _out = render_error_callout(mo, "Failed to load SQL examples", _exc)
     _out
     return
 
@@ -258,6 +266,7 @@ async def _(
     app_url,
     btn_run_sql,
     mo,
+    render_error_callout,
     render_sql_result,
     sql_editor,
     sql_mode,
@@ -279,10 +288,7 @@ async def _(
         )
         _view = render_sql_result(mo, _exec)
     except StreamhousePipelineError as _exc:
-        _view = mo.callout(
-            mo.md(f"❌ **Flink SQL execution failed:** {_exc}"),
-            kind="danger",
-        )
+        _view = render_error_callout(mo, "Flink SQL execution failed", _exc)
     mo.vstack([mo.md("### Execution Output"), _view])
     return
 

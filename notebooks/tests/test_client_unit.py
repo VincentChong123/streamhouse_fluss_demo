@@ -22,6 +22,13 @@ from shared.client import (
     StreamhouseClient,
     StreamhousePipelineError,
 )
+from shared.render import (
+    format_error_message,
+    render_custom_events_result,
+    render_error_callout,
+    render_python_result,
+    render_sql_result,
+)
 from shared.scenario import PAYMENT_ID, SUPPLIER_ID
 
 NOTEBOOKS_DIR = Path(__file__).resolve().parent.parent
@@ -532,3 +539,124 @@ def test_notebooks_guard_all_execution_calls_with_mo_stop_and_handle_errors():
                         f"{nb_path.name}:{node.lineno} must catch StreamhousePipelineError "
                         "to render truthful stage/execution error messages."
                     )
+
+
+class _FakeMarimo:
+    """Minimal stand-in for marimo UI builders used to assert rendered markdown text."""
+
+    class ui:
+        @staticmethod
+        def table(rows: Any, label: str = "") -> dict[str, Any]:
+            return {"type": "table", "label": label, "rows": rows}
+
+    @staticmethod
+    def md(text: str) -> dict[str, Any]:
+        return {"type": "md", "text": text}
+
+    @staticmethod
+    def callout(body: Any, kind: str = "info") -> dict[str, Any]:
+        return {"type": "callout", "kind": kind, "body": body}
+
+    @staticmethod
+    def vstack(parts: list[Any]) -> dict[str, Any]:
+        return {"type": "vstack", "parts": parts}
+
+    @staticmethod
+    def accordion(sections: dict[str, Any]) -> dict[str, Any]:
+        return {"type": "accordion", "sections": sections}
+
+    @staticmethod
+    def json(data: Any) -> dict[str, Any]:
+        return {"type": "json", "data": data}
+
+
+@pytest.mark.asyncio
+async def test_error_messages_include_iso_utc_timestamps():
+    """All client exceptions, error callouts, and failure renderers include ISO-8601 UTC timestamps."""
+    import re
+
+    iso_re = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z")
+
+    # 1. Stage failure preserves server finished_at timestamp on StageExecutionError.
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return _json_response(
+                202, {"stage": 2, "run_id": "run-ts", "status": "RUNNING"}
+            )
+        return _json_response(
+            200,
+            _sample_state(
+                run_id="run-ts",
+                stage2={
+                    "status": "FAILED",
+                    "finished_at": "2026-11-24T09:11:56.922315121Z",
+                    "error": "Flink rejected the job submission",
+                },
+            ),
+        )
+
+    client = StreamhouseClient(transport=httpx.MockTransport(handler))
+    with pytest.raises(StageExecutionError) as exc_info:
+        await client.run_processing_job(poll_interval=0.01, timeout=1.0)
+    assert exc_info.value.timestamp == "2026-11-24T09:11:56.922315121Z"
+
+    callout = render_error_callout(_FakeMarimo, "Stage 2 failed", exc_info.value)
+    assert callout["kind"] == "danger"
+    text = callout["body"]["text"]
+    assert "❌ `[2026-11-24T09:11:56.922315121Z]` **Stage 2 failed:**" in text
+    assert "Flink rejected the job submission" in text
+
+    # 2. Generic exceptions and plain strings automatically receive a UTC timestamp.
+    plain = format_error_message("Health check failed", StreamhousePipelineError("boom"))
+    assert plain.startswith("❌ `[")
+    assert iso_re.search(plain)
+    assert "**Health check failed:** boom" in plain
+
+    # 3. Failure renderers in shared/render.py include timestamps.
+    kafka_err = render_custom_events_result(
+        _FakeMarimo,
+        {"records": [{"status": "FAILED", "error": "broker down"}], "error": "send failed"},
+    )
+    kafka_headline = kafka_err["parts"][0]["body"]["text"]
+    assert kafka_headline.startswith("❌ `[")
+    assert iso_re.search(kafka_headline)
+
+    sql_err = render_sql_result(
+        _FakeMarimo,
+        {
+            "id": "sql-err-1",
+            "status": "FAILED",
+            "finished_at": "2026-11-24T09:12:00Z",
+            "error": "syntax error",
+        },
+    )
+    sql_summary = sql_err["parts"][0]["body"]["text"]
+    assert "### ❌ `[2026-11-24T09:12:00Z]` Flink SQL Execution `FAILED`" in sql_summary
+    assert "- **Error** (`2026-11-24T09:12:00Z`): syntax error" in sql_summary
+
+    py_err = render_python_result(
+        _FakeMarimo,
+        {
+            "id": "py-err-1",
+            "status": "FAILED",
+            "exit_code": 1,
+            "finished_at": "2026-11-24T09:12:05Z",
+            "error": "ZeroDivisionError",
+        },
+    )
+    py_summary = py_err["parts"][0]["body"]["text"]
+    assert "### ❌ `[2026-11-24T09:12:05Z]` Python (`pyfluss`) Execution `FAILED`" in py_summary
+    assert "- **Error** (`2026-11-24T09:12:05Z`): ZeroDivisionError" in py_summary
+
+
+def test_notebooks_use_timestamped_error_callout_helper():
+    """Static guard: no notebook formats a raw ❌ error string without render_error_callout."""
+    for nb_path in sorted(NOTEBOOKS_DIR.glob("0*.py")):
+        source = nb_path.read_text(encoding="utf-8")
+        assert "❌" not in source, (
+            f"{nb_path.name} contains a raw ❌ string; use render_error_callout() "
+            "so every error message includes a UTC timestamp."
+        )
+        assert "render_error_callout" in source, (
+            f"{nb_path.name} must use render_error_callout() for error messages."
+        )

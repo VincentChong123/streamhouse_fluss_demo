@@ -9,7 +9,7 @@ def _():
     import marimo as mo
 
     from shared.client import StreamhouseClient, StreamhousePipelineError
-    from shared.render import render_custom_events_result
+    from shared.render import render_custom_events_result, render_error_callout
     from shared.scenario import NORTHSTAR_EVENTS, SCENARIO_TITLE, SUPPLIER_ID
 
     mo.md(
@@ -33,6 +33,7 @@ def _():
         StreamhousePipelineError,
         mo,
         render_custom_events_result,
+        render_error_callout,
     )
 
 
@@ -61,7 +62,14 @@ def _(mo):
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_health, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_health,
+    mo,
+    render_error_callout,
+):
     mo.stop(not btn_health.value)
     _client = StreamhouseClient(app_url=app_url.value)
     try:
@@ -84,15 +92,20 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_health, mo
             kind="info" if _kafka.get("status") == "UP" else "warn",
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Kafka health check failed:** {_exc}"), kind="danger"
-        )
+        _out = render_error_callout(mo, "Kafka health check failed", _exc)
     _out
     return
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_new_run, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_new_run,
+    mo,
+    render_error_callout,
+):
     mo.stop(not btn_new_run.value)
     _client = StreamhouseClient(app_url=app_url.value)
     try:
@@ -104,15 +117,20 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_new_run, m
             kind="success",
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Failed to create new run:** {_exc}"), kind="danger"
-        )
+        _out = render_error_callout(mo, "Failed to create new run", _exc)
     _out
     return
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_emit, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_emit,
+    mo,
+    render_error_callout,
+):
     mo.stop(
         not btn_emit.value,
         mo.md("*Click **Emit Scenario Events to Kafka** above to run Stage 1.*"),
@@ -160,10 +178,7 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_emit, mo):
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Stage 1 failed:** {_exc}"),
-            kind="danger",
-        )
+        _out = render_error_callout(mo, "Stage 1 failed", _exc)
     _out
     return
 
@@ -226,7 +241,12 @@ def _(mo):
 
 @app.cell
 async def _(
-    StreamhouseClient, StreamhousePipelineError, app_url, btn_load_templates, mo
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_load_templates,
+    mo,
+    render_error_callout,
 ):
     mo.stop(not btn_load_templates.value)
     _client = StreamhouseClient(app_url=app_url.value)
@@ -240,9 +260,7 @@ async def _(
             }
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Failed to load templates:** {_exc}"), kind="danger"
-        )
+        _out = render_error_callout(mo, "Failed to load templates", _exc)
     _out
     return
 
@@ -259,6 +277,7 @@ async def _(
     custom_topic,
     mo,
     render_custom_events_result,
+    render_error_callout,
 ):
     mo.stop(
         not btn_send_custom.value,
@@ -276,10 +295,7 @@ async def _(
         )
         _view = render_custom_events_result(mo, _resp)
     except StreamhousePipelineError as _exc:
-        _view = mo.callout(
-            mo.md(f"❌ **Custom Kafka send failed:** {_exc}"),
-            kind="danger",
-        )
+        _view = render_error_callout(mo, "Custom Kafka send failed", _exc)
     mo.vstack([mo.md("### Execution Output"), _view])
     return
 

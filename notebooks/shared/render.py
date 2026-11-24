@@ -6,7 +6,38 @@ placeholders or fallback counts).
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
+
+
+def utc_timestamp() -> str:
+    """Return the current UTC timestamp in ISO-8601 format (``YYYY-MM-DDTHH:MM:SSZ``)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def format_error_message(
+    label: str,
+    error: Any,
+    *,
+    timestamp: str | None = None,
+) -> str:
+    """Format a markdown error line with an ISO-8601 UTC timestamp."""
+    ts = timestamp or getattr(error, "timestamp", None) or utc_timestamp()
+    return f"❌ `[{ts}]` **{label}:** {error}"
+
+
+def render_error_callout(
+    mo: Any,
+    label: str,
+    error: Any,
+    *,
+    timestamp: str | None = None,
+) -> Any:
+    """Render a danger Marimo callout with an ISO-8601 UTC timestamp."""
+    return mo.callout(
+        mo.md(format_error_message(label, error, timestamp=timestamp)),
+        kind="danger",
+    )
 
 
 def render_custom_events_result(mo: Any, response: dict[str, Any]) -> Any:
@@ -32,8 +63,9 @@ def render_custom_events_result(mo: Any, response: dict[str, Any]) -> Any:
     )
     kind = "success" if all_ok else "danger"
     icon = "✅" if all_ok else "❌"
+    ts_prefix = "" if all_ok else f"`[{utc_timestamp()}]` "
     headline = (
-        f"{icon} **Kafka Producer Result:** `{len(rows)}` record(s) processed"
+        f"{icon} {ts_prefix}**Kafka Producer Result:** `{len(rows)}` record(s) processed"
         + (f" — {response['error']}" if response.get("error") else "")
     )
     parts = [
@@ -55,6 +87,12 @@ def render_sql_result(mo: Any, execution: dict[str, Any]) -> Any:
         else "danger"
     )
     icon = "✅" if status == "FINISHED" else "⚠️" if status == "CANCELED" else "❌"
+    err_ts = (
+        execution.get("finished_at")
+        or execution.get("updated_at")
+        or utc_timestamp()
+    )
+    ts_prefix = f"`[{err_ts}]` " if icon == "❌" else ""
 
     job_id = execution.get("job_id")
     job_url = execution.get("job_url")
@@ -67,7 +105,7 @@ def render_sql_result(mo: Any, execution: dict[str, Any]) -> Any:
     )
 
     summary_lines = [
-        f"### {icon} Flink SQL Execution `{status}`",
+        f"### {icon} {ts_prefix}Flink SQL Execution `{status}`",
         f"- **Execution ID:** `{execution.get('id')}` · **Kind:** `{execution.get('kind')}` · **Mode:** `{execution.get('mode')}`",
         f"- **Flink Job:** {job_text} (`{execution.get('job_state') or 'N/A'}`)",
         f"- **Duration:** `{execution.get('duration_ms')}` ms · **Rows:** `{execution.get('row_count', 0)}`"
@@ -76,7 +114,7 @@ def render_sql_result(mo: Any, execution: dict[str, Any]) -> Any:
     if execution.get("note"):
         summary_lines.append(f"- **Note:** {execution['note']}")
     if execution.get("error"):
-        summary_lines.append(f"- **Error:** {execution['error']}")
+        summary_lines.append(f"- **Error** (`{err_ts}`): {execution['error']}")
 
     parts: list[Any] = [mo.callout(mo.md("\n".join(summary_lines)), kind=kind_badge)]
 
@@ -143,9 +181,15 @@ def render_python_result(mo: Any, execution: dict[str, Any]) -> Any:
         else "danger"
     )
     icon = "✅" if status == "FINISHED" else "⚠️" if status == "CANCELED" else "❌"
+    err_ts = (
+        execution.get("finished_at")
+        or execution.get("updated_at")
+        or utc_timestamp()
+    )
+    ts_prefix = f"`[{err_ts}]` " if icon == "❌" else ""
 
     summary_lines = [
-        f"### {icon} Python (`pyfluss`) Execution `{status}`",
+        f"### {icon} {ts_prefix}Python (`pyfluss`) Execution `{status}`",
         f"- **Execution ID:** `{execution.get('id')}` · **Exit Code:** `{execution.get('exit_code')}` · **Duration:** `{execution.get('duration_ms')}` ms",
         f"- **Runtime:** `{execution.get('client') or 'python-runner'}`",
     ]
@@ -154,7 +198,7 @@ def render_python_result(mo: Any, execution: dict[str, Any]) -> Any:
             "- **Warning:** Output was truncated at the runner's 64 KiB cap."
         )
     if execution.get("error"):
-        summary_lines.append(f"- **Error:** {execution['error']}")
+        summary_lines.append(f"- **Error** (`{err_ts}`): {execution['error']}")
 
     parts: list[Any] = [mo.callout(mo.md("\n".join(summary_lines)), kind=kind_badge)]
 

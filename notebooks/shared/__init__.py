@@ -8,9 +8,12 @@ from shared.client import (
     StreamhousePipelineError,
 )
 from shared.render import (
+    format_error_message,
     render_custom_events_result,
+    render_error_callout,
     render_python_result,
     render_sql_result,
+    utc_timestamp,
 )
 from shared.scenario import (
     FLUSS_TABLES,
@@ -35,7 +38,10 @@ __all__ = [
     "StageExecutionError",
     "StreamhouseClient",
     "StreamhousePipelineError",
+    "format_error_message",
     "render_custom_events_result",
+    "render_error_callout",
     "render_python_result",
     "render_sql_result",
+    "utc_timestamp",
 ]

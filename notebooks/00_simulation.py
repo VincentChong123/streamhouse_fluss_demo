@@ -11,8 +11,10 @@ def _():
     from shared.client import StreamhouseClient, StreamhousePipelineError
     from shared.render import (
         render_custom_events_result,
+        render_error_callout,
         render_python_result,
         render_sql_result,
+        utc_timestamp,
     )
     from shared.scenario import (
         PAYMENT_ID,
@@ -46,8 +48,10 @@ def _():
         StreamhousePipelineError,
         mo,
         render_custom_events_result,
+        render_error_callout,
         render_python_result,
         render_sql_result,
+        utc_timestamp,
     )
 
 
@@ -71,6 +75,8 @@ async def _(
     app_url_input,
     btn_health,
     mo,
+    render_error_callout,
+    utc_timestamp,
 ):
     mo.stop(
         not btn_health.value,
@@ -101,15 +107,23 @@ async def _(
             (4, "4 · Query (Fluss)"),
         ]:
             _st = _run.get(f"stage{_n}") or {}
+            _stage_err = _st.get("error")
+            if _stage_err:
+                _err_ts = (
+                    _st.get("finished_at")
+                    or _st.get("started_at")
+                    or utc_timestamp()
+                )
+                _blocked_or_error = f"[{_err_ts}] {_stage_err}"
+            else:
+                _blocked_or_error = _st.get("blocked_reason") or ""
             _stage_rows.append(
                 {
                     "stage": _label,
                     "status": _st.get("status"),
                     "can_run": _st.get("can_run"),
                     "duration_ms": _st.get("duration_ms"),
-                    "blocked_or_error": _st.get("error")
-                    or _st.get("blocked_reason")
-                    or "",
+                    "blocked_or_error": _blocked_or_error,
                 }
             )
         _view = mo.vstack(
@@ -123,10 +137,7 @@ async def _(
             ]
         )
     except StreamhousePipelineError as _exc:
-        _view = mo.callout(
-            mo.md(f"❌ **Health check failed:** {_exc}"),
-            kind="danger",
-        )
+        _view = render_error_callout(mo, "Health check failed", _exc)
     _view
     return
 
@@ -138,6 +149,7 @@ async def _(
     app_url_input,
     btn_new_run,
     mo,
+    render_error_callout,
 ):
     mo.stop(not btn_new_run.value)
     _client = StreamhouseClient(app_url=app_url_input.value)
@@ -151,10 +163,7 @@ async def _(
             kind="success",
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Could not start new run:** {_exc}"),
-            kind="danger",
-        )
+        _out = render_error_callout(mo, "Could not start new run", _exc)
     _out
     return
 
@@ -177,6 +186,7 @@ async def _(
     app_url_input,
     btn_stage1,
     mo,
+    render_error_callout,
 ):
     mo.stop(
         not btn_stage1.value,
@@ -214,7 +224,7 @@ async def _(
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(mo.md(f"❌ **Stage 1 failed:** {_exc}"), kind="danger")
+        _out = render_error_callout(mo, "Stage 1 failed", _exc)
     _out
     return
 
@@ -226,6 +236,7 @@ async def _(
     app_url_input,
     btn_stage2,
     mo,
+    render_error_callout,
 ):
     mo.stop(
         not btn_stage2.value,
@@ -274,7 +285,7 @@ async def _(
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(mo.md(f"❌ **Stage 2 failed:** {_exc}"), kind="danger")
+        _out = render_error_callout(mo, "Stage 2 failed", _exc)
     _out
     return
 
@@ -286,6 +297,7 @@ async def _(
     app_url_input,
     btn_stage3,
     mo,
+    render_error_callout,
 ):
     mo.stop(
         not btn_stage3.value,
@@ -325,7 +337,7 @@ async def _(
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(mo.md(f"❌ **Stage 3 failed:** {_exc}"), kind="danger")
+        _out = render_error_callout(mo, "Stage 3 failed", _exc)
     _out
     return
 
@@ -339,6 +351,7 @@ async def _(
     app_url_input,
     btn_stage4,
     mo,
+    render_error_callout,
 ):
     mo.stop(
         not btn_stage4.value,
@@ -371,7 +384,7 @@ async def _(
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(mo.md(f"❌ **Stage 4 failed:** {_exc}"), kind="danger")
+        _out = render_error_callout(mo, "Stage 4 failed", _exc)
     _out
     return
 
@@ -474,6 +487,7 @@ async def _(
     lab_token,
     mo,
     render_custom_events_result,
+    render_error_callout,
     render_python_result,
     render_sql_result,
     user_input_editor,
@@ -511,9 +525,8 @@ async def _(
             )
             _result_view = render_python_result(mo, _exec)
     except StreamhousePipelineError as _exc:
-        _result_view = mo.callout(
-            mo.md(f"❌ **{lab_target.value} execution failed:** {_exc}"),
-            kind="danger",
+        _result_view = render_error_callout(
+            mo, f"{lab_target.value} execution failed", _exc
         )
     mo.vstack([mo.md("### Execution Output"), _result_view])
     return

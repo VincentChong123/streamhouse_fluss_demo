@@ -9,7 +9,11 @@ def _():
     import marimo as mo
 
     from shared.client import StreamhouseClient, StreamhousePipelineError
-    from shared.render import render_python_result, render_sql_result
+    from shared.render import (
+        render_error_callout,
+        render_python_result,
+        render_sql_result,
+    )
     from shared.scenario import FLUSS_TABLES, PAYMENT_ID, SUPPLIER_ID
 
     mo.md(
@@ -34,6 +38,7 @@ def _():
         StreamhouseClient,
         StreamhousePipelineError,
         mo,
+        render_error_callout,
         render_python_result,
         render_sql_result,
     )
@@ -63,7 +68,14 @@ def _(mo):
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_ingest, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_ingest,
+    mo,
+    render_error_callout,
+):
     mo.stop(
         not btn_ingest.value,
         mo.md(
@@ -130,16 +142,20 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_ingest, mo
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Stage 3 failed:** {_exc}"),
-            kind="danger",
-        )
+        _out = render_error_callout(mo, "Stage 3 failed", _exc)
     _out
     return
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_query, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_query,
+    mo,
+    render_error_callout,
+):
     mo.stop(
         not btn_query.value,
         mo.md(
@@ -202,10 +218,7 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_query, mo)
             ]
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Stage 4 failed:** {_exc}"),
-            kind="danger",
-        )
+        _out = render_error_callout(mo, "Stage 4 failed", _exc)
     _out
     return
 
@@ -244,6 +257,7 @@ async def _(
     btn_direct_lookup,
     entity_input,
     mo,
+    render_error_callout,
     run_id_input,
     table_select,
 ):
@@ -285,7 +299,7 @@ async def _(
                 kind="warn",
             )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(mo.md(f"❌ **Direct lookup failed:** {_exc}"), kind="danger")
+        _out = render_error_callout(mo, "Direct lookup failed", _exc)
     _out
     return
 
@@ -339,6 +353,7 @@ async def _(
     fluss_sql_editor,
     fluss_sql_mode,
     mo,
+    render_error_callout,
     render_sql_result,
     workspace_token,
 ):
@@ -358,7 +373,7 @@ async def _(
         )
         _view = render_sql_result(mo, _exec)
     except StreamhousePipelineError as _exc:
-        _view = mo.callout(mo.md(f"❌ **Fluss SQL failed:** {_exc}"), kind="danger")
+        _view = render_error_callout(mo, "Fluss SQL failed", _exc)
     mo.vstack([mo.md("### Fluss SQL Execution Output"), _view])
     return
 
@@ -401,7 +416,14 @@ def _(mo):
 
 
 @app.cell
-async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_py_example, mo):
+async def _(
+    StreamhouseClient,
+    StreamhousePipelineError,
+    app_url,
+    btn_py_example,
+    mo,
+    render_error_callout,
+):
     mo.stop(not btn_py_example.value)
     _client = StreamhouseClient(app_url=app_url.value)
     try:
@@ -414,9 +436,7 @@ async def _(StreamhouseClient, StreamhousePipelineError, app_url, btn_py_example
             }
         )
     except StreamhousePipelineError as _exc:
-        _out = mo.callout(
-            mo.md(f"❌ **Failed to fetch Python example:** {_exc}"), kind="danger"
-        )
+        _out = render_error_callout(mo, "Failed to fetch Python example", _exc)
     _out
     return
 
@@ -429,6 +449,7 @@ async def _(
     btn_run_python,
     mo,
     python_editor,
+    render_error_callout,
     render_python_result,
     workspace_token,
 ):
@@ -446,9 +467,7 @@ async def _(
         )
         _view = render_python_result(mo, _exec)
     except StreamhousePipelineError as _exc:
-        _view = mo.callout(
-            mo.md(f"❌ **Python execution failed:** {_exc}"), kind="danger"
-        )
+        _view = render_error_callout(mo, "Python execution failed", _exc)
     mo.vstack([mo.md("### Python Execution Output"), _view])
     return
 

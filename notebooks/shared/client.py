@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import os
 import time
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -34,8 +35,16 @@ SQL_TERMINAL_STATES = frozenset({"FINISHED", "FAILED", "CANCELED"})
 PYTHON_TERMINAL_STATES = frozenset({"FINISHED", "FAILED", "TIMED_OUT", "CANCELED"})
 
 
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class StreamhousePipelineError(RuntimeError):
     """Base error raised when an interaction with the Streamhouse stack fails."""
+
+    def __init__(self, message: str, *, timestamp: str | None = None) -> None:
+        super().__init__(message)
+        self.timestamp: str = timestamp or _utc_now_iso()
 
 
 class ServiceUnavailableError(StreamhousePipelineError):
@@ -223,7 +232,11 @@ class StreamhouseClient:
                 )
                 detail = stage_state.get("error_detail")
                 msg = f"{err} ({detail})" if detail else str(err)
-                raise StageExecutionError(msg)
+                raise StageExecutionError(
+                    msg,
+                    timestamp=stage_state.get("finished_at")
+                    or stage_state.get("started_at"),
+                )
 
             if time.monotonic() >= deadline:
                 phase_note = f", last phase: {last_phase}" if last_phase else ""
