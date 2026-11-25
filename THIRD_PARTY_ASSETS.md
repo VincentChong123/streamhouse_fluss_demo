@@ -36,6 +36,7 @@ dashboard copies only the deck's colour palette and font stack (system fonts, no
 | `org.apache.fluss:fluss-client` | 1.0.0 | app image `lib/` | Apache-2.0 |
 | `org.apache.kafka:kafka-clients` | 3.9.1 | app image `lib/` | Apache-2.0 |
 | `org.apache.flink:flink-sql-connector-kafka` | 3.3.0-1.20, SHA-256 `1086f3eee73d727e234860fcd03adafc0d76f2fc70a25d39c36427693fff749d` (checked by `ADD --checksum`) | Flink image `/opt/flink/lib` (JobManager, TaskManager, SQL Gateway) | Apache-2.0 |
+| `io.opentelemetry.javaagent:opentelemetry-javaagent` | 2.34.0, SHA-256 `da44154cea128257779c8a782b9651fd7c0c6aa177cd3810f9a867ac8509555d` (checked by `ADD --checksum`) | App image and Flink image `/opt/otel/opentelemetry-javaagent.jar` | Apache-2.0 |
 | `com.fasterxml.jackson.core:*` | 2.17.2 | both | Apache-2.0 |
 | `org.slf4j:slf4j-api`, `slf4j-simple` | 2.0.16 | app image | MIT |
 | `org.junit.jupiter:*` | 5.10.3 | tests only | EPL-2.0 |

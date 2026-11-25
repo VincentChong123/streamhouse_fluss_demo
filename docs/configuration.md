@@ -24,6 +24,15 @@ PLAYGROUND_ACCESS_TOKEN=
 
 # false disables the Python tab's execution entirely.
 PLAYGROUND_PYTHON_ENABLED=true
+
+# OpenTelemetry (zero-code Java Agent via compose.otel.yaml on demo-app, kafka, flink, fluss).
+# Start with: docker compose -f compose.yaml -f compose.otel.yaml up --build -d
+# (Include -f compose.override.yaml before -f compose.otel.yaml if you use a local override.)
+# Defaults target a local OTLP/HTTP Protobuf receiver (e.g. Aspire Dashboard at http://127.0.0.1:4318).
+OTEL_SDK_DISABLED=false
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+OTEL_EXPORTER_OTLP_HEADERS=
 ```
 
 > The repository has no `.env.example`, because that file could not be written in the
