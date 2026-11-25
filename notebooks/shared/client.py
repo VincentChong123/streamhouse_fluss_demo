@@ -20,6 +20,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from opentelemetry.trace import SpanKind, Status, StatusCode
+
+from shared.telemetry import (
+    get_tracer,
+    inject_trace_request_hook,
+    set_span_attributes,
+)
 
 DEFAULT_APP_URL = "http://localhost:8090"
 DEFAULT_FLINK_URL = "http://localhost:8081"
@@ -106,7 +113,11 @@ class StreamhouseClient:
         self._transport = transport
 
     def _http_client(self, timeout: float = 10.0) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=timeout, transport=self._transport)
+        return httpx.AsyncClient(
+            timeout=timeout,
+            transport=self._transport,
+            event_hooks={"request": [inject_trace_request_hook]},
+        )
 
     # ------------------------------------------------------------------ state & runs
 
@@ -140,21 +151,35 @@ class StreamhouseClient:
     async def start_new_run(self, *, timeout: float = 10.0) -> dict[str, Any]:
         """Start a fresh demo run via ``POST /api/runs`` (returns ``{'run_id': ...}``)."""
         url = f"{self.app_url}/api/runs"
-        async with self._http_client(timeout=timeout) as client:
-            try:
-                resp = await client.post(url, json={})
-            except httpx.HTTPError as exc:
-                raise ServiceUnavailableError(
-                    f"Unable to reach demo-app at {url}: {exc}"
-                ) from exc
+        with get_tracer().start_as_current_span(
+            "streamhouse.start_new_run", kind=SpanKind.CLIENT
+        ) as span:
+            set_span_attributes(span, {"http.method": "POST", "url.full": url})
+            async with self._http_client(timeout=timeout) as client:
+                try:
+                    resp = await client.post(url, json={})
+                except httpx.HTTPError as exc:
+                    span.record_exception(exc)
+                    span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    raise ServiceUnavailableError(
+                        f"Unable to reach demo-app at {url}: {exc}"
+                    ) from exc
 
-        if resp.status_code == 409:
-            raise StageConflictError(_extract_error_message(resp))
-        if resp.status_code not in (200, 201):
-            raise StreamhousePipelineError(
-                f"POST /api/runs failed (HTTP {resp.status_code}): {_extract_error_message(resp)}"
-            )
-        return resp.json()
+            span.set_attribute("http.response.status_code", resp.status_code)
+            if resp.status_code == 409:
+                msg = _extract_error_message(resp)
+                span.set_status(Status(StatusCode.ERROR, msg))
+                raise StageConflictError(msg)
+            if resp.status_code not in (200, 201):
+                msg = (
+                    f"POST /api/runs failed (HTTP {resp.status_code}): "
+                    f"{_extract_error_message(resp)}"
+                )
+                span.set_status(Status(StatusCode.ERROR, msg))
+                raise StreamhousePipelineError(msg)
+            data = resp.json()
+            set_span_attributes(span, {"streamhouse.run_id": data.get("run_id")})
+            return data
 
     # ------------------------------------------------------------------ stages 1-4
 
@@ -254,38 +279,57 @@ class StreamhouseClient:
         timeout: float = 60.0,
     ) -> dict[str, Any]:
         """Stage 1: Trigger Kafka scenario emission and wait for real broker acknowledgments."""
-        accepted = await self._trigger_stage(1)
-        run_id, stage1 = await self.wait_for_stage(
-            1,
-            expected_run_id=accepted.get("run_id"),
-            poll_interval=poll_interval,
-            timeout=timeout,
-        )
-        events = stage1.get("events")
-        if not isinstance(events, list) or not events:
-            raise StageExecutionError(
-                "Stage 1 reported SUCCEEDED, but demo-app returned no acknowledged Kafka events."
-            )
-        unacked = [
-            ev.get("event_id", "<unknown>")
-            for ev in events
-            if ev.get("status") != "ACKNOWLEDGED"
-            or ev.get("partition") is None
-            or ev.get("offset") is None
-        ]
-        if unacked:
-            raise StageExecutionError(
-                f"Stage 1 returned events without complete Kafka acknowledgments: {unacked}"
-            )
-        return {
-            "run_id": run_id,
-            "stage": 1,
-            "status": stage1["status"],
-            "topic": stage1.get("topic"),
-            "duration_ms": stage1.get("duration_ms"),
-            "steps": stage1.get("steps", []),
-            "events": events,
-        }
+        with get_tracer().start_as_current_span(
+            "streamhouse.stage1.emit_events", kind=SpanKind.CLIENT
+        ) as span:
+            span.set_attribute("streamhouse.stage", 1)
+            try:
+                accepted = await self._trigger_stage(1)
+                run_id, stage1 = await self.wait_for_stage(
+                    1,
+                    expected_run_id=accepted.get("run_id"),
+                    poll_interval=poll_interval,
+                    timeout=timeout,
+                )
+                events = stage1.get("events")
+                if not isinstance(events, list) or not events:
+                    raise StageExecutionError(
+                        "Stage 1 reported SUCCEEDED, but demo-app returned no acknowledged Kafka events."
+                    )
+                unacked = [
+                    ev.get("event_id", "<unknown>")
+                    for ev in events
+                    if ev.get("status") != "ACKNOWLEDGED"
+                    or ev.get("partition") is None
+                    or ev.get("offset") is None
+                ]
+                if unacked:
+                    raise StageExecutionError(
+                        f"Stage 1 returned events without complete Kafka acknowledgments: {unacked}"
+                    )
+                set_span_attributes(
+                    span,
+                    {
+                        "streamhouse.run_id": run_id,
+                        "messaging.system": "kafka",
+                        "messaging.destination.name": stage1.get("topic"),
+                        "streamhouse.events.count": len(events),
+                        "streamhouse.duration_ms": stage1.get("duration_ms"),
+                    },
+                )
+                return {
+                    "run_id": run_id,
+                    "stage": 1,
+                    "status": stage1["status"],
+                    "topic": stage1.get("topic"),
+                    "duration_ms": stage1.get("duration_ms"),
+                    "steps": stage1.get("steps", []),
+                    "events": events,
+                }
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                raise
 
     async def run_processing_job(
         self,
@@ -294,35 +338,54 @@ class StreamhouseClient:
         timeout: float = 120.0,
     ) -> dict[str, Any]:
         """Stage 2: Submit bounded Flink processing job and wait for FINISHED + computed results."""
-        accepted = await self._trigger_stage(2)
-        run_id, stage2 = await self.wait_for_stage(
-            2,
-            expected_run_id=accepted.get("run_id"),
-            poll_interval=poll_interval,
-            timeout=timeout,
-        )
-        execution = stage2.get("execution")
-        if not isinstance(execution, dict):
-            raise StageExecutionError(
-                "Stage 2 reported SUCCEEDED, but demo-app returned no Flink execution record."
-            )
-        if execution.get("job_state") != "FINISHED":
-            raise StageExecutionError(
-                f"Stage 2 Flink job did not reach FINISHED (observed: {execution.get('job_state')})."
-            )
-        results = execution.get("results")
-        if not isinstance(results, list) or not results:
-            raise StageExecutionError(
-                "Stage 2 Flink job finished, but no computed results were read back from Kafka."
-            )
-        return {
-            "run_id": run_id,
-            "stage": 2,
-            "status": stage2["status"],
-            "duration_ms": stage2.get("duration_ms"),
-            "steps": stage2.get("steps", []),
-            "execution": execution,
-        }
+        with get_tracer().start_as_current_span(
+            "streamhouse.stage2.flink_processing", kind=SpanKind.CLIENT
+        ) as span:
+            span.set_attribute("streamhouse.stage", 2)
+            try:
+                accepted = await self._trigger_stage(2)
+                run_id, stage2 = await self.wait_for_stage(
+                    2,
+                    expected_run_id=accepted.get("run_id"),
+                    poll_interval=poll_interval,
+                    timeout=timeout,
+                )
+                execution = stage2.get("execution")
+                if not isinstance(execution, dict):
+                    raise StageExecutionError(
+                        "Stage 2 reported SUCCEEDED, but demo-app returned no Flink execution record."
+                    )
+                if execution.get("job_state") != "FINISHED":
+                    raise StageExecutionError(
+                        f"Stage 2 Flink job did not reach FINISHED (observed: {execution.get('job_state')})."
+                    )
+                results = execution.get("results")
+                if not isinstance(results, list) or not results:
+                    raise StageExecutionError(
+                        "Stage 2 Flink job finished, but no computed results were read back from Kafka."
+                    )
+                set_span_attributes(
+                    span,
+                    {
+                        "streamhouse.run_id": run_id,
+                        "streamhouse.flink.job_id": execution.get("job_id"),
+                        "streamhouse.flink.execution_id": execution.get("execution_id"),
+                        "streamhouse.results.count": len(results),
+                        "streamhouse.duration_ms": stage2.get("duration_ms"),
+                    },
+                )
+                return {
+                    "run_id": run_id,
+                    "stage": 2,
+                    "status": stage2["status"],
+                    "duration_ms": stage2.get("duration_ms"),
+                    "steps": stage2.get("steps", []),
+                    "execution": execution,
+                }
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                raise
 
     async def run_ingestion_job(
         self,
@@ -331,43 +394,62 @@ class StreamhouseClient:
         timeout: float = 120.0,
     ) -> dict[str, Any]:
         """Stage 3: Submit bounded Flink ingestion job and require native Fluss read-back proof."""
-        accepted = await self._trigger_stage(3)
-        run_id, stage3 = await self.wait_for_stage(
-            3,
-            expected_run_id=accepted.get("run_id"),
-            poll_interval=poll_interval,
-            timeout=timeout,
-        )
-        execution = stage3.get("execution")
-        if not isinstance(execution, dict):
-            raise StageExecutionError(
-                "Stage 3 reported SUCCEEDED, but demo-app returned no ingestion execution record."
-            )
-        if execution.get("job_state") != "FINISHED":
-            raise StageExecutionError(
-                f"Stage 3 ingestion job did not reach FINISHED (observed: {execution.get('job_state')})."
-            )
-        read_back = execution.get("read_back")
-        if not isinstance(read_back, dict):
-            raise StageExecutionError(
-                "Stage 3 missing native Fluss read_back verification payload."
-            )
-        checked = read_back.get("checked", 0)
-        matched = read_back.get("matched", 0)
-        if not read_back.get("verified") or checked <= 0 or matched != checked:
-            raise StageExecutionError(
-                f"Stage 3 persistence not proven by Fluss read-back: "
-                f"verified={read_back.get('verified')}, matched={matched}/{checked}."
-            )
-        return {
-            "run_id": run_id,
-            "stage": 3,
-            "status": stage3["status"],
-            "duration_ms": stage3.get("duration_ms"),
-            "warning": stage3.get("warning"),
-            "steps": stage3.get("steps", []),
-            "execution": execution,
-        }
+        with get_tracer().start_as_current_span(
+            "streamhouse.stage3.fluss_ingestion", kind=SpanKind.CLIENT
+        ) as span:
+            span.set_attribute("streamhouse.stage", 3)
+            try:
+                accepted = await self._trigger_stage(3)
+                run_id, stage3 = await self.wait_for_stage(
+                    3,
+                    expected_run_id=accepted.get("run_id"),
+                    poll_interval=poll_interval,
+                    timeout=timeout,
+                )
+                execution = stage3.get("execution")
+                if not isinstance(execution, dict):
+                    raise StageExecutionError(
+                        "Stage 3 reported SUCCEEDED, but demo-app returned no ingestion execution record."
+                    )
+                if execution.get("job_state") != "FINISHED":
+                    raise StageExecutionError(
+                        f"Stage 3 ingestion job did not reach FINISHED (observed: {execution.get('job_state')})."
+                    )
+                read_back = execution.get("read_back")
+                if not isinstance(read_back, dict):
+                    raise StageExecutionError(
+                        "Stage 3 missing native Fluss read_back verification payload."
+                    )
+                checked = read_back.get("checked", 0)
+                matched = read_back.get("matched", 0)
+                if not read_back.get("verified") or checked <= 0 or matched != checked:
+                    raise StageExecutionError(
+                        f"Stage 3 persistence not proven by Fluss read-back: "
+                        f"verified={read_back.get('verified')}, matched={matched}/{checked}."
+                    )
+                set_span_attributes(
+                    span,
+                    {
+                        "streamhouse.run_id": run_id,
+                        "streamhouse.flink.job_id": execution.get("job_id"),
+                        "streamhouse.fluss.checked": checked,
+                        "streamhouse.fluss.matched": matched,
+                        "streamhouse.duration_ms": stage3.get("duration_ms"),
+                    },
+                )
+                return {
+                    "run_id": run_id,
+                    "stage": 3,
+                    "status": stage3["status"],
+                    "duration_ms": stage3.get("duration_ms"),
+                    "warning": stage3.get("warning"),
+                    "steps": stage3.get("steps", []),
+                    "execution": execution,
+                }
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                raise
 
     async def query_fluss_stage(
         self,
@@ -376,36 +458,52 @@ class StreamhouseClient:
         timeout: float = 30.0,
     ) -> dict[str, Any]:
         """Stage 4: Trigger native Fluss primary-key lookups for supplier_risk and payment_reviews."""
-        accepted = await self._trigger_stage(4)
-        run_id, stage4 = await self.wait_for_stage(
-            4,
-            expected_run_id=accepted.get("run_id"),
-            poll_interval=poll_interval,
-            timeout=timeout,
-        )
-        result = stage4.get("result")
-        if not isinstance(result, dict):
-            raise StageExecutionError(
-                "Stage 4 reported SUCCEEDED, but demo-app returned no Fluss query result."
-            )
-        supplier = result.get("supplier") or {}
-        review = result.get("review") or {}
-        if not (supplier.get("ok") and supplier.get("found")):
-            raise StageExecutionError(
-                f"Stage 4 supplier_risk lookup did not return a row: {supplier.get('error') or 'not found'}"
-            )
-        if not (review.get("ok") and review.get("found")):
-            raise StageExecutionError(
-                f"Stage 4 payment_reviews lookup did not return a row: {review.get('error') or 'not found'}"
-            )
-        return {
-            "run_id": run_id,
-            "stage": 4,
-            "status": stage4["status"],
-            "duration_ms": stage4.get("duration_ms"),
-            "steps": stage4.get("steps", []),
-            "result": result,
-        }
+        with get_tracer().start_as_current_span(
+            "streamhouse.stage4.fluss_query", kind=SpanKind.CLIENT
+        ) as span:
+            span.set_attribute("streamhouse.stage", 4)
+            try:
+                accepted = await self._trigger_stage(4)
+                run_id, stage4 = await self.wait_for_stage(
+                    4,
+                    expected_run_id=accepted.get("run_id"),
+                    poll_interval=poll_interval,
+                    timeout=timeout,
+                )
+                result = stage4.get("result")
+                if not isinstance(result, dict):
+                    raise StageExecutionError(
+                        "Stage 4 reported SUCCEEDED, but demo-app returned no Fluss query result."
+                    )
+                supplier = result.get("supplier") or {}
+                review = result.get("review") or {}
+                if not (supplier.get("ok") and supplier.get("found")):
+                    raise StageExecutionError(
+                        f"Stage 4 supplier_risk lookup did not return a row: {supplier.get('error') or 'not found'}"
+                    )
+                if not (review.get("ok") and review.get("found")):
+                    raise StageExecutionError(
+                        f"Stage 4 payment_reviews lookup did not return a row: {review.get('error') or 'not found'}"
+                    )
+                set_span_attributes(
+                    span,
+                    {
+                        "streamhouse.run_id": run_id,
+                        "streamhouse.duration_ms": stage4.get("duration_ms"),
+                    },
+                )
+                return {
+                    "run_id": run_id,
+                    "stage": 4,
+                    "status": stage4["status"],
+                    "duration_ms": stage4.get("duration_ms"),
+                    "steps": stage4.get("steps", []),
+                    "result": result,
+                }
+            except Exception as exc:
+                span.record_exception(exc)
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+                raise
 
     # ------------------------------------------------------------------ native lookups
 
@@ -429,51 +527,82 @@ class StreamhouseClient:
 
         params = {col: str(primary_key[col]) for col in required}
         url = f"{self.app_url}/api/lookup/{table}"
-        async with self._http_client(timeout=timeout) as client:
-            try:
-                resp = await client.get(url, params=params)
-            except httpx.HTTPError as exc:
-                raise ServiceUnavailableError(
-                    f"Unable to reach demo-app at {url}: {exc}"
-                ) from exc
+        with get_tracer().start_as_current_span(
+            f"streamhouse.lookup.{table}", kind=SpanKind.CLIENT
+        ) as span:
+            set_span_attributes(
+                span,
+                {
+                    "streamhouse.fluss.table": table,
+                    "streamhouse.run_id": params.get("run_id"),
+                    "http.method": "GET",
+                    "url.full": url,
+                },
+            )
+            async with self._http_client(timeout=timeout) as client:
+                try:
+                    resp = await client.get(url, params=params)
+                except httpx.HTTPError as exc:
+                    span.record_exception(exc)
+                    span.set_status(Status(StatusCode.ERROR, str(exc)))
+                    raise ServiceUnavailableError(
+                        f"Unable to reach demo-app at {url}: {exc}"
+                    ) from exc
 
-        if resp.status_code == 200:
-            obs = resp.json()
-            if not obs.get("ok"):
-                raise ServiceUnavailableError(
-                    f"Fluss lookup for {table} failed: {obs.get('error') or 'unknown error'}"
+            span.set_attribute("http.response.status_code", resp.status_code)
+            if resp.status_code == 200:
+                obs = resp.json()
+                if not obs.get("ok"):
+                    msg = f"Fluss lookup for {table} failed: {obs.get('error') or 'unknown error'}"
+                    span.set_status(Status(StatusCode.ERROR, msg))
+                    raise ServiceUnavailableError(msg)
+                set_span_attributes(
+                    span,
+                    {
+                        "streamhouse.fluss.found": obs.get("found"),
+                        "streamhouse.fluss.elapsed_ms": obs.get("elapsed_ms"),
+                    },
                 )
-            return obs
-
-        if resp.status_code == 404:
-            try:
-                obs = resp.json()
-            except ValueError:
-                obs = None
-            if (
-                isinstance(obs, dict)
-                and obs.get("ok") is True
-                and obs.get("found") is False
-            ):
                 return obs
-            raise StreamhousePipelineError(
-                f"Fluss lookup for {table} failed (HTTP 404): {_extract_error_message(resp)}"
-            )
 
-        if resp.status_code == 503:
-            try:
-                obs = resp.json()
-                detail = obs.get("error") if isinstance(obs, dict) else None
-            except ValueError:
-                detail = None
-            raise ServiceUnavailableError(
-                f"Fluss lookup unavailable for {table}: {detail or _extract_error_message(resp)}"
-            )
+            if resp.status_code == 404:
+                try:
+                    obs = resp.json()
+                except ValueError:
+                    obs = None
+                if (
+                    isinstance(obs, dict)
+                    and obs.get("ok") is True
+                    and obs.get("found") is False
+                ):
+                    span.set_attribute("streamhouse.fluss.found", False)
+                    return obs
+                msg = (
+                    f"Fluss lookup for {table} failed (HTTP 404): "
+                    f"{_extract_error_message(resp)}"
+                )
+                span.set_status(Status(StatusCode.ERROR, msg))
+                raise StreamhousePipelineError(msg)
 
-        raise StreamhousePipelineError(
-            f"Fluss lookup for {table} failed (HTTP {resp.status_code}): "
-            f"{_extract_error_message(resp)}"
-        )
+            if resp.status_code == 503:
+                try:
+                    obs = resp.json()
+                    detail = obs.get("error") if isinstance(obs, dict) else None
+                except ValueError:
+                    detail = None
+                msg = (
+                    f"Fluss lookup unavailable for {table}: "
+                    f"{detail or _extract_error_message(resp)}"
+                )
+                span.set_status(Status(StatusCode.ERROR, msg))
+                raise ServiceUnavailableError(msg)
+
+            msg = (
+                f"Fluss lookup for {table} failed (HTTP {resp.status_code}): "
+                f"{_extract_error_message(resp)}"
+            )
+            span.set_status(Status(StatusCode.ERROR, msg))
+            raise StreamhousePipelineError(msg)
 
     async def _resolve_run_id(self, run_id: str | None) -> str:
         if run_id:
