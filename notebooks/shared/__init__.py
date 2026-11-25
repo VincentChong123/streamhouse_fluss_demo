@@ -24,6 +24,13 @@ from shared.scenario import (
     SCENARIO_TITLE,
     SUPPLIER_ID,
 )
+from shared.telemetry import (
+    current_trace_id,
+    flush_telemetry,
+    get_tracer,
+    init_telemetry,
+    inject_trace_headers,
+)
 
 __all__ = [
     "FLUSS_TABLES",
@@ -38,7 +45,12 @@ __all__ = [
     "StageExecutionError",
     "StreamhouseClient",
     "StreamhousePipelineError",
+    "current_trace_id",
+    "flush_telemetry",
     "format_error_message",
+    "get_tracer",
+    "init_telemetry",
+    "inject_trace_headers",
     "render_custom_events_result",
     "render_error_callout",
     "render_python_result",
