@@ -1,0 +1,11 @@
+# Python & tooling caches (scoped to notebooks/)
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.coverage
+htmlcov/
+__marimo__/

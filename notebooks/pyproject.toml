@@ -1,0 +1,41 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "streamhouse-marimo"
+version = "0.1.0"
+description = "Marimo reactive notebooks for Payment Risk Streamhouse"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "marimo>=0.11.0",
+    "httpx>=0.27.0",
+    "pandas>=2.2.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.8.0",
+]
+native = [
+    "pyfluss==1.0.0",
+    "confluent-kafka>=2.6.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["shared"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = "-m 'not integration'"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: live end-to-end tests requiring the running Streamhouse Docker Compose stack",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]

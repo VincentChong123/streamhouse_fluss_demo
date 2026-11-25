@@ -1,0 +1,144 @@
+name: Marimo Notebooks CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pre-flight:
+    name: 1. Offline Unit Tests, Lint, DAG & Wasm Export
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies via uv
+        run: |
+          if ! command -v uv >/dev/null 2>&1; then
+            curl -LsSf https://astral.sh/uv/install.sh | sh
+            export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          fi
+          cd notebooks && uv sync --extra test
+
+      - name: Ruff Lint Check
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run ruff check .
+
+      - name: Marimo DAG & Cycle Check
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run marimo check 00_simulation.py 01_kafka.py 02_flink.py 03_fluss.py
+
+      - name: Offline Unit & Compliance Tests
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv run pytest -v -m "not integration"
+
+      - name: Verify Wasm Export
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          mkdir -p build/wasm
+          cd notebooks
+          for nb in 0*.py; do
+            [ -f "$nb" ] || continue
+            echo "Validating Wasm export for $nb..."
+            uv run marimo export html-wasm "$nb" -o "../build/wasm/$(basename "$nb" .py).html"
+          done
+
+  detect-integration:
+    name: Detect Integration Scope
+    runs-on: ubuntu-latest
+    outputs:
+      run_integration: ${{ steps.filter.outputs.run_integration || steps.act-fallback.outputs.enabled }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enable integration under act or manual dispatch
+        if: ${{ env.ACT || github.event_name == 'workflow_dispatch' }}
+        id: act-fallback
+        run: echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+      - name: Inspect Git changes
+        if: ${{ !env.ACT && github.event_name != 'workflow_dispatch' }}
+        id: filter
+        run: |
+          BASE_REF=$(git rev-parse --verify origin/main 2>/dev/null || git rev-parse HEAD~1)
+          CHANGED=$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null || echo "notebooks/")
+          if echo "$CHANGED" | grep -qE '^(notebooks/|demo-app/|flink-job/|common/|compose\.yaml)'; then
+            echo "run_integration=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_integration=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  integration-streamhouse:
+    name: 2. Live Integration Tests (Full Streamhouse Stack)
+    needs: [pre-flight, detect-integration]
+    if: ${{ needs.detect-integration.outputs.run_integration == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Start Full Streamhouse Stack
+        run: docker compose up --build -d
+
+      - name: Wait for Kafka, Flink, Fluss & demo-app READY
+        run: |
+          python3 - <<'PY'
+          import json, sys, time, urllib.request
+          deadline = time.time() + 300
+          last = None
+          while time.time() < deadline:
+              try:
+                  with urllib.request.urlopen("http://localhost:8090/api/state", timeout=5) as r:
+                      data = json.loads(r.read().decode("utf-8"))
+                      overall = (data.get("health") or {}).get("overall")
+                      last = overall
+                      if overall == "READY":
+                          print("Streamhouse stack is READY.")
+                          sys.exit(0)
+              except Exception as exc:
+                  last = str(exc)
+              time.sleep(3)
+          print(f"Timed out waiting for READY (last: {last})", file=sys.stderr)
+          sys.exit(1)
+          PY
+
+      - name: Run Live Integration Tests via uv
+        run: |
+          export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+          cd notebooks
+          uv sync --extra test
+          uv run pytest -v -m integration tests/test_phases.py
+
+      - name: Dump Compose Logs on Failure
+        if: ${{ failure() }}
+        run: |
+          docker compose ps
+          docker compose logs --tail=100 demo-app bootstrap kafka fluss-coordinator fluss-tablet flink-jobmanager flink-taskmanager
+
+      - name: Tear Down Stack
+        if: ${{ always() && !env.ACT }}
+        run: docker compose down --volumes --remove-orphans
