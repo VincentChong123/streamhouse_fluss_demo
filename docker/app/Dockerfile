@@ -32,8 +32,12 @@ RUN --mount=type=cache,target=/root/.m2 mvn -B -ntp verify
 FROM eclipse-temurin:17-jre@sha256:e04fa72be13b257a59fdec6dc14af78c8f80f035d3c1ed4e03e45552a231d4c8 AS runtime
 RUN groupadd --system --gid 10001 app \
  && useradd --system --uid 10001 --gid app --home-dir /app --no-create-home app \
- && mkdir -p /app /status \
- && chown app:app /status
+ && mkdir -p /app /status /opt/otel \
+ && chown app:app /status /opt/otel
+ADD --chown=app:app \
+    --checksum=sha256:da44154cea128257779c8a782b9651fd7c0c6aa177cd3810f9a867ac8509555d \
+    https://repo1.maven.org/maven2/io/opentelemetry/javaagent/opentelemetry-javaagent/2.34.0/opentelemetry-javaagent-2.34.0.jar \
+    /opt/otel/opentelemetry-javaagent.jar
 WORKDIR /app
 COPY --from=build /src/demo-app/target/demo-app.jar /app/demo-app.jar
 COPY --from=build /src/demo-app/target/lib /app/lib

@@ -1,0 +1,106 @@
+# OpenTelemetry observability overlay (Aspire Dashboard / OTLP HTTP Protobuf).
+#
+# Attaches the checksum-verified OpenTelemetry Java Agent (zero-code, no Java source changes)
+# to demo-app, kafka, flink (jobmanager, taskmanager, sql-gateway), and fluss (coordinator, tablet)
+# and exports traces, structured logs, and metrics to http://127.0.0.1:4318 by default.
+#
+# Usage:
+#   docker compose -f compose.yaml -f compose.otel.yaml up --build -d
+#   # Or with a local compose.override.yaml:
+#   docker compose -f compose.yaml -f compose.override.yaml -f compose.otel.yaml up --build -d
+#
+# Override defaults via .env or shell env:
+#   OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+#   OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+#   OTEL_EXPORTER_OTLP_HEADERS=
+
+x-otel-env: &otel-env
+  OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-false}
+  OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://127.0.0.1:4318}
+  OTEL_EXPORTER_OTLP_PROTOCOL: ${OTEL_EXPORTER_OTLP_PROTOCOL:-http/protobuf}
+  OTEL_EXPORTER_OTLP_HEADERS: ${OTEL_EXPORTER_OTLP_HEADERS:-}
+  OTEL_TRACES_EXPORTER: ${OTEL_TRACES_EXPORTER:-otlp}
+  OTEL_METRICS_EXPORTER: ${OTEL_METRICS_EXPORTER:-otlp}
+  OTEL_LOGS_EXPORTER: ${OTEL_LOGS_EXPORTER:-otlp}
+
+services:
+  # One-shot helper that copies the checksum-verified OTel Java Agent JAR from the built app image
+  # into a shared read-only volume so upstream apache/kafka and apache/fluss images can attach it
+  # without custom Dockerfiles or committed binary JARs.
+  otel-agent:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+      target: runtime
+    image: payment-risk-streamhouse-demo/app:local
+    user: "0:0"
+    entrypoint: ["sh", "-c", "cp /opt/otel/opentelemetry-javaagent.jar /otel-shared/opentelemetry-javaagent.jar && chmod 0444 /otel-shared/opentelemetry-javaagent.jar"]
+    restart: "no"
+    volumes:
+      - otel-agent:/otel-shared
+
+  kafka:
+    depends_on:
+      otel-agent:
+        condition: service_completed_successfully
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: kafka
+      KAFKA_OPTS: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+    volumes:
+      - otel-agent:/opt/otel:ro
+
+  fluss-coordinator:
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+      otel-agent:
+        condition: service_completed_successfully
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: fluss-coordinator
+      FLUSS_ENV_JAVA_OPTS_CS: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+    volumes:
+      - otel-agent:/opt/otel:ro
+
+  fluss-tablet:
+    depends_on:
+      fluss-coordinator:
+        condition: service_started
+      otel-agent:
+        condition: service_completed_successfully
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: fluss-tablet
+      FLUSS_ENV_JAVA_OPTS_TS: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+    volumes:
+      - otel-agent:/opt/otel:ro
+
+  flink-jobmanager:
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: flink-jobmanager
+      FLINK_ENV_JAVA_OPTS_JM: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+
+  flink-taskmanager:
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: flink-taskmanager
+      OTEL_INSTRUMENTATION_KAFKA_EXPERIMENTAL_SPAN_ATTRIBUTES: "true"
+      FLINK_ENV_JAVA_OPTS_TM: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+
+  flink-sql-gateway:
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: flink-sql-gateway
+      FLINK_ENV_JAVA_OPTS_SQL_GATEWAY: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+
+  demo-app:
+    environment:
+      <<: *otel-env
+      OTEL_SERVICE_NAME: demo-app
+      OTEL_INSTRUMENTATION_KAFKA_EXPERIMENTAL_SPAN_ATTRIBUTES: "true"
+      JDK_JAVA_OPTIONS: -javaagent:/opt/otel/opentelemetry-javaagent.jar
+
+volumes:
+  otel-agent:
