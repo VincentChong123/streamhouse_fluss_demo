@@ -42,3 +42,8 @@ markers = [
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
 ignore = ["E501"]
+
+[tool.uv]
+python-preference = "system"
+python-downloads = "manual"
+link-mode = "copy"
